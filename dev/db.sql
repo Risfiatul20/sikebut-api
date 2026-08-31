@@ -260,8 +260,23 @@ CREATE TABLE dev.users (
 	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
 	CONSTRAINT users_pkey PRIMARY KEY (id),
 	CONSTRAINT users_username_key UNIQUE (username),
-	CONSTRAINT fk_sub_kegiatan FOREIGN KEY (kode_sub_kegiatan) REFERENCES dev.ref_sub_kegiatan(kode_sub_kegiatan),
 	CONSTRAINT fk_users_skpd FOREIGN KEY (kode_skpd) REFERENCES dev.ref_skpd(kode_skpd) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- 1. Buat tabel pivot user_sub_kegiatan
+CREATE TABLE dev.user_sub_kegiatan (
+	id bigserial NOT NULL,
+	user_id int8 NOT NULL,
+	kode_sub_kegiatan varchar(50) NOT NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT user_sub_kegiatan_pkey PRIMARY KEY (id),
+	CONSTRAINT user_sub_kegiatan_unique UNIQUE (user_id, kode_sub_kegiatan),
+	CONSTRAINT fk_user_sub_kegiatan_user FOREIGN KEY (user_id) 
+		REFERENCES dev.users(id) 
+		ON DELETE CASCADE ON UPDATE CASCADE,
+	CONSTRAINT fk_user_sub_kegiatan_sub_kegiatan FOREIGN KEY (kode_sub_kegiatan) 
+		REFERENCES dev.ref_sub_kegiatan(kode_sub_kegiatan) 
+		ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 
