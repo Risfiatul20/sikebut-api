@@ -32,7 +32,7 @@ class UserController extends Controller
             $sortBy = 'id';
         }
 
-        $query = User::with(['skpd', 'subKegiatan']);
+        $query = User::with(['skpd', 'subKegiatan.kegiatan.program']);
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -86,7 +86,7 @@ class UserController extends Controller
             return $user;
         });
 
-        $user->load(['skpd', 'subKegiatan']);
+        $user->load(['skpd', 'subKegiatan.kegiatan.program']);
 
         return response()->json([
             'message' => 'User created successfully',
@@ -99,7 +99,7 @@ class UserController extends Controller
      */
     public function show(User $user): JsonResponse
     {
-        $user->load(['skpd', 'subKegiatan']);
+        $user->load(['skpd', 'subKegiatan.kegiatan.program']);
 
         return response()->json([
             'user' => new UserResource($user),
@@ -144,7 +144,7 @@ class UserController extends Controller
             }
         });
 
-        $user->load(['skpd', 'subKegiatan']);
+        $user->load(['skpd', 'subKegiatan.kegiatan.program']);
 
         return response()->json([
             'message' => 'User updated successfully',

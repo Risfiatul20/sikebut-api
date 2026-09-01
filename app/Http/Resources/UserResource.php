@@ -18,6 +18,8 @@ class UserResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $isPpk = strtoupper((string) $this->role) === 'PPK';
+
         return [
             'id' => $this->id,
             'nama' => $this->nama,
@@ -33,14 +35,52 @@ class UserResource extends JsonResource
                     'parent_kode_skpd' => $this->skpd?->parent_kode_skpd,
                 ];
             }),
-            'sub_kegiatan' => $this->whenLoaded('subKegiatan', function () {
-                return $this->subKegiatan->map(function ($item) {
-                    return [
+            'sub_kegiatan' => $this->whenLoaded('subKegiatan', function () use ($isPpk) {
+                return $this->subKegiatan->map(function ($item) use ($isPpk) {
+                    $data = [
                         'kode_sub_kegiatan' => $item->kode_sub_kegiatan,
                         'kode_kegiatan' => $item->kode_kegiatan,
                         'nama_sub_kegiatan' => $item->nama_sub_kegiatan,
                     ];
+
+                    if ($isPpk) {
+                        $data['kegiatan'] = $item->relationLoaded('kegiatan') && $item->kegiatan ? [
+                            'kode_kegiatan' => $item->kegiatan->kode_kegiatan,
+                            'nama_kegiatan' => $item->kegiatan->nama_kegiatan,
+                            'kode_program' => $item->kegiatan->kode_program,
+                        ] : null;
+
+                        $data['program'] = $item->relationLoaded('kegiatan') && $item->kegiatan?->relationLoaded('program') && $item->kegiatan?->program ? [
+                            'kode_program' => $item->kegiatan->program->kode_program,
+                            'nama_program' => $item->kegiatan->program->nama_program,
+                        ] : null;
+                    }
+
+                    return $data;
                 });
+            }),
+            'programs' => $this->when($isPpk && $this->relationLoaded('subKegiatan'), function () {
+                return $this->subKegiatan
+                    ->map(fn ($item) => $item->relationLoaded('kegiatan') && $item->kegiatan?->relationLoaded('program') ? $item->kegiatan?->program : null)
+                    ->filter()
+                    ->unique('kode_program')
+                    ->values()
+                    ->map(fn ($program) => [
+                        'kode_program' => $program->kode_program,
+                        'nama_program' => $program->nama_program,
+                    ]);
+            }),
+            'kegiatans' => $this->when($isPpk && $this->relationLoaded('subKegiatan'), function () {
+                return $this->subKegiatan
+                    ->map(fn ($item) => $item->relationLoaded('kegiatan') ? $item->kegiatan : null)
+                    ->filter()
+                    ->unique('kode_kegiatan')
+                    ->values()
+                    ->map(fn ($kegiatan) => [
+                        'kode_kegiatan' => $kegiatan->kode_kegiatan,
+                        'kode_program' => $kegiatan->kode_program,
+                        'nama_kegiatan' => $kegiatan->nama_kegiatan,
+                    ]);
             }),
         ];
     }

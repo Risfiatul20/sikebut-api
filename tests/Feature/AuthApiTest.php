@@ -122,4 +122,86 @@ class AuthApiTest extends TestCase
 
         $afterLogoutResponse->assertUnauthorized();
     }
+
+    public function test_ppk_user_login_includes_kegiatan_and_program_details(): void
+    {
+        $skpd = RefSkpd::first();
+        $subKegiatan = RefSubKegiatan::with('kegiatan.program')->first();
+
+        $user = User::create([
+            'nama' => 'PPK Test User',
+            'username' => 'test_user_ppk_login',
+            'password' => Hash::make('secret123'),
+            'role' => 'PPK',
+            'kode_skpd' => $skpd?->kode_skpd,
+            'info' => ['nip' => '198501012010011002'],
+        ]);
+
+        if ($subKegiatan) {
+            $user->subKegiatan()->attach($subKegiatan->kode_sub_kegiatan);
+        }
+
+        $response = $this->postJson('/api/v1/auth/login', [
+            'username' => 'test_user_ppk_login',
+            'password' => 'secret123',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('user.role', 'PPK');
+
+        if ($subKegiatan && $subKegiatan->kegiatan && $subKegiatan->kegiatan->program) {
+            $response->assertJsonStructure([
+                'user' => [
+                    'programs' => [
+                        '*' => ['kode_program', 'nama_program'],
+                    ],
+                    'kegiatans' => [
+                        '*' => ['kode_kegiatan', 'kode_program', 'nama_kegiatan'],
+                    ],
+                    'sub_kegiatan' => [
+                        '*' => [
+                            'kode_sub_kegiatan',
+                            'kode_kegiatan',
+                            'nama_sub_kegiatan',
+                            'kegiatan' => ['kode_kegiatan', 'nama_kegiatan', 'kode_program'],
+                            'program' => ['kode_program', 'nama_program'],
+                        ],
+                    ],
+                ],
+            ]);
+
+            $response->assertJsonPath('user.sub_kegiatan.0.kegiatan.kode_kegiatan', $subKegiatan->kegiatan->kode_kegiatan);
+            $response->assertJsonPath('user.sub_kegiatan.0.program.kode_program', $subKegiatan->kegiatan->program->kode_program);
+        }
+    }
+
+    public function test_ppk_user_me_includes_kegiatan_and_program_details(): void
+    {
+        $skpd = RefSkpd::first();
+        $subKegiatan = RefSubKegiatan::with('kegiatan.program')->first();
+
+        $user = User::create([
+            'nama' => 'PPK Test Me',
+            'username' => 'test_user_ppk_me',
+            'password' => Hash::make('secret123'),
+            'role' => 'PPK',
+            'kode_skpd' => $skpd?->kode_skpd,
+        ]);
+
+        if ($subKegiatan) {
+            $user->subKegiatan()->attach($subKegiatan->kode_sub_kegiatan);
+        }
+
+        $token = $user->createToken('ppk_token')->plainTextToken;
+
+        $response = $this->withToken($token)->getJson('/api/v1/auth/me');
+
+        $response->assertOk()
+            ->assertJsonPath('user.role', 'PPK');
+
+        if ($subKegiatan && $subKegiatan->kegiatan && $subKegiatan->kegiatan->program) {
+            $response->assertJsonPath('user.sub_kegiatan.0.kegiatan.kode_kegiatan', $subKegiatan->kegiatan->kode_kegiatan);
+            $response->assertJsonPath('user.sub_kegiatan.0.program.kode_program', $subKegiatan->kegiatan->program->kode_program);
+        }
+    }
 }
