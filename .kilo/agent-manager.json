@@ -4,11 +4,16 @@
     "ses_fa9f782a8ffek1TA7vv14uZww9": {
       "worktreeId": null,
       "createdAt": "2026-08-31T04:16:32.185Z"
+    },
+    "ses_fa53e94e8ffeLIbbh32KGApiig": {
+      "worktreeId": null,
+      "createdAt": "2026-09-01T02:17:00.610Z"
     }
   },
   "tabOrder": {
     "local": [
-      "ses_fa9f782a8ffek1TA7vv14uZww9"
+      "ses_fa9f782a8ffek1TA7vv14uZww9",
+      "ses_fa53e94e8ffeLIbbh32KGApiig"
     ]
   },
   "sessionsCollapsed": true

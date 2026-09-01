@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\RefAkunResource;
+use App\Http\Resources\RefAkunViewResource;
 use App\Models\RefAkun;
+use App\Models\RefAkunView;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -63,38 +65,42 @@ class RefAkunController extends Controller
             $query->where('parent_kode_akun', $parent);
         }
 
-        if ($request->has('b')) {
-            $b = filter_var($request->query('b'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            if ($b !== null) {
-                $query->whereHas('indikator', function ($q) use ($b) {
-                    $q->where('is_belanja_pengadaan', $b);
+        $belanjaPengadaan = $request->query('belanja_pengadaan') ?? $request->query('is_belanja_pengadaan') ?? $request->query('b');
+        if ($belanjaPengadaan !== null) {
+            $val = filter_var($belanjaPengadaan, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->whereHas('indikator', function ($q) use ($val) {
+                    $q->where('is_belanja_pengadaan', $val);
                 });
             }
         }
 
-        if ($request->has('r')) {
-            $r = filter_var($request->query('r'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            if ($r !== null) {
-                $query->whereHas('indikator', function ($q) use ($r) {
-                    $q->where('is_rkbmd_pengadaan', $r);
+        $rkbmdPengadaan = $request->query('rkbmd_pengadaan') ?? $request->query('is_rkbmd_pengadaan') ?? $request->query('r');
+        if ($rkbmdPengadaan !== null) {
+            $val = filter_var($rkbmdPengadaan, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->whereHas('indikator', function ($q) use ($val) {
+                    $q->where('is_rkbmd_pengadaan', $val);
                 });
             }
         }
 
-        if ($request->has('h')) {
-            $h = filter_var($request->query('h'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            if ($h !== null) {
-                $query->whereHas('indikator', function ($q) use ($h) {
-                    $q->where('is_rkbmd_pemeliharaan_rehab', $h);
+        $pemeliharaanRehab = $request->query('pemeliharaan_rehab') ?? $request->query('is_rkbmd_pemeliharaan_rehab') ?? $request->query('h');
+        if ($pemeliharaanRehab !== null) {
+            $val = filter_var($pemeliharaanRehab, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->whereHas('indikator', function ($q) use ($val) {
+                    $q->where('is_rkbmd_pemeliharaan_rehab', $val);
                 });
             }
         }
 
-        if ($request->has('t')) {
-            $t = filter_var($request->query('t'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            if ($t !== null) {
-                $query->whereHas('indikator', function ($q) use ($t) {
-                    $q->where('is_rkbmd_pemeliharaan_rutin', $t);
+        $pemeliharaanRutin = $request->query('pemeliharaan_rutin') ?? $request->query('is_rkbmd_pemeliharaan_rutin') ?? $request->query('t');
+        if ($pemeliharaanRutin !== null) {
+            $val = filter_var($pemeliharaanRutin, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->whereHas('indikator', function ($q) use ($val) {
+                    $q->where('is_rkbmd_pemeliharaan_rutin', $val);
                 });
             }
         }
@@ -104,5 +110,96 @@ class RefAkunController extends Controller
         $akuns = $perPage > 0 ? $query->paginate($perPage) : $query->get();
 
         return RefAkunResource::collection($akuns);
+    }
+
+    /**
+     * Display a flattened table listing from dev.ref_akun_view.
+     */
+    public function view(Request $request): AnonymousResourceCollection
+    {
+        /** @var User|null $currentUser */
+        $currentUser = $request->user();
+
+        $search = $request->query('search');
+        $kode2 = $request->query('kode_2');
+        $kode3 = $request->query('kode_3');
+        $kode4 = $request->query('kode_4');
+        $kode5 = $request->query('kode_5');
+        $kodeSubUnit = $request->query('kode_sub_unit') ?? $currentUser?->kode_skpd;
+        $perPage = (int) $request->query('per_page', 0);
+
+        $query = RefAkunView::query();
+
+        if ($kodeSubUnit) {
+            $distinctAccounts = DB::table('dev.sipd_penetapan_apbd')
+                ->where('kode_sub_unit', $kodeSubUnit)
+                ->whereNotNull('kode_rekening')
+                ->distinct()
+                ->pluck('kode_rekening');
+
+            $query->whereIn('kode_6', $distinctAccounts);
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('kode_6', 'ilike', "%{$search}%")
+                    ->orWhere('nama_6', 'ilike', "%{$search}%")
+                    ->orWhere('nama_5', 'ilike', "%{$search}%")
+                    ->orWhere('nama_4', 'ilike', "%{$search}%")
+                    ->orWhere('nama_3', 'ilike', "%{$search}%")
+                    ->orWhere('nama_2', 'ilike', "%{$search}%");
+            });
+        }
+
+        if ($kode2) {
+            $query->where('kode_2', $kode2);
+        }
+        if ($kode3) {
+            $query->where('kode_3', $kode3);
+        }
+        if ($kode4) {
+            $query->where('kode_4', $kode4);
+        }
+        if ($kode5) {
+            $query->where('kode_5', $kode5);
+        }
+
+        $belanjaPengadaan = $request->query('belanja_pengadaan') ?? $request->query('is_belanja_pengadaan') ?? $request->query('b');
+        if ($belanjaPengadaan !== null) {
+            $val = filter_var($belanjaPengadaan, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->where('is_belanja_pengadaan', $val);
+            }
+        }
+
+        $rkbmdPengadaan = $request->query('rkbmd_pengadaan') ?? $request->query('is_rkbmd_pengadaan') ?? $request->query('r');
+        if ($rkbmdPengadaan !== null) {
+            $val = filter_var($rkbmdPengadaan, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->where('is_rkbmd_pengadaan', $val);
+            }
+        }
+
+        $pemeliharaanRehab = $request->query('pemeliharaan_rehab') ?? $request->query('is_rkbmd_pemeliharaan_rehab') ?? $request->query('h');
+        if ($pemeliharaanRehab !== null) {
+            $val = filter_var($pemeliharaanRehab, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->where('is_rkbmd_pemeliharaan_rehab', $val);
+            }
+        }
+
+        $pemeliharaanRutin = $request->query('pemeliharaan_rutin') ?? $request->query('is_rkbmd_pemeliharaan_rutin') ?? $request->query('t');
+        if ($pemeliharaanRutin !== null) {
+            $val = filter_var($pemeliharaanRutin, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($val !== null) {
+                $query->where('is_rkbmd_pemeliharaan_rutin', $val);
+            }
+        }
+
+        $query->orderBy('kode_6', 'asc');
+
+        $rows = $perPage > 0 ? $query->paginate($perPage) : $query->get();
+
+        return RefAkunViewResource::collection($rows);
     }
 }

@@ -338,3 +338,47 @@ CREATE TABLE dev.identifikasi_kebutuhan_anggaran (
 	CONSTRAINT fk_pivot_identifikasi FOREIGN KEY (identifikasi_kebutuhan_id) REFERENCES dev.identifikasi_kebutuhan(id) ON DELETE CASCADE,
 	CONSTRAINT fk_ref_standar_harga FOREIGN KEY (kode_standar_harga) REFERENCES dev.ref_standar_harga(kode_standar_harga)
 );
+
+-- dev.ref_sipd_view source
+
+CREATE OR REPLACE VIEW dev.ref_sipd_view
+AS SELECT spa.kode_daerah,
+    spa.nama_daerah,
+    spa.tahun,
+    COALESCE(parent_skpd.kode_skpd, sub_unit.kode_skpd) AS kode_skpd,
+    COALESCE(parent_skpd.nama_skpd, sub_unit.nama_skpd) AS nama_skpd,
+    sub_unit.kode_skpd AS kode_sub_unit,
+    sub_unit.nama_skpd AS nama_sub_unit,
+    urus.kode_urusan,
+    urus.nama_urusan,
+    bidur.kode_bidang_urusan,
+    bidur.nama_bidang_urusan,
+    prog.kode_program,
+    prog.nama_program,
+    keg.kode_kegiatan,
+    keg.nama_kegiatan,
+    sub_keg.kode_sub_kegiatan,
+    sub_keg.nama_sub_kegiatan,
+    spa.kode_sumber_dana,
+    spa.nama_sumber_dana,
+    spa.kode_rekening,
+    akun.nama_akun AS nama_rekening,
+    spa.kode_standar_harga,
+    standar.nama_standar_harga,
+    spa.pagu,
+    ind.is_belanja_pengadaan,
+    ind.is_rkbmd_pengadaan,
+    ind.is_rkbmd_pemeliharaan_rehab,
+    ind.is_rkbmd_pemeliharaan_rutin,
+    spa.versi
+   FROM dev.sipd_penetapan_apbd spa
+     JOIN dev.ref_skpd sub_unit ON spa.kode_sub_unit::text = sub_unit.kode_skpd::text
+     LEFT JOIN dev.ref_skpd parent_skpd ON sub_unit.parent_kode_skpd::text = parent_skpd.kode_skpd::text
+     LEFT JOIN dev.ref_sub_kegiatan sub_keg ON spa.kode_sub_kegiatan::text = sub_keg.kode_sub_kegiatan::text
+     LEFT JOIN dev.ref_kegiatan keg ON sub_keg.kode_kegiatan::text = keg.kode_kegiatan::text
+     LEFT JOIN dev.ref_program prog ON keg.kode_program::text = prog.kode_program::text
+     LEFT JOIN dev.ref_bidang_urusan bidur ON prog.kode_bidang_urusan::text = bidur.kode_bidang_urusan::text
+     LEFT JOIN dev.ref_urusan urus ON bidur.kode_urusan::text = urus.kode_urusan::text
+     LEFT JOIN dev.ref_standar_harga standar ON standar.kode_standar_harga::text = spa.kode_standar_harga::text
+     LEFT JOIN dev.ref_akun akun ON spa.kode_rekening::text = akun.kode_akun::text
+     LEFT JOIN dev.akun_indikator_rkbmd ind ON spa.kode_rekening::text = ind.kode_akun::text;

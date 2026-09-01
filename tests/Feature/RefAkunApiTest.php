@@ -123,9 +123,16 @@ class RefAkunApiTest extends TestCase
         ]);
 
         $response = $this->withToken($token)
-            ->getJson('/api/v1/ref-akun?search=TEST_AKUN&b=true');
+            ->getJson('/api/v1/ref-akun?search=TEST_AKUN&belanja_pengadaan=true');
 
         $response->assertOk()
+            ->assertJsonFragment(['kode' => 'TEST_AKUN_A'])
+            ->assertJsonMissing(['kode' => 'TEST_AKUN_B']);
+
+        $responseAlias = $this->withToken($token)
+            ->getJson('/api/v1/ref-akun?search=TEST_AKUN&b=true');
+
+        $responseAlias->assertOk()
             ->assertJsonFragment(['kode' => 'TEST_AKUN_A'])
             ->assertJsonMissing(['kode' => 'TEST_AKUN_B']);
     }
@@ -175,5 +182,37 @@ class RefAkunApiTest extends TestCase
             ->assertJsonFragment(['kode' => 'TEST_AKUN_REK_5'])
             ->assertJsonFragment(['kode' => 'TEST_AKUN_REK_5.1'])
             ->assertJsonMissing(['kode' => 'TEST_AKUN_OTHER_6']);
+    }
+
+    public function test_can_query_ref_akun_view_endpoint(): void
+    {
+        [$user, $token] = $this->createAuthToken();
+
+        $response = $this->withToken($token)
+            ->getJson('/api/v1/ref-akun/view?per_page=5');
+
+        $response->assertOk()
+            ->assertJsonStructure([
+                'data' => [
+                    '*' => [
+                        'kode_2',
+                        'nama_2',
+                        'kode_3',
+                        'nama_3',
+                        'kode_4',
+                        'nama_4',
+                        'kode_5',
+                        'nama_5',
+                        'kode_6',
+                        'nama_6',
+                        'b',
+                        'r',
+                        'h',
+                        't',
+                    ],
+                ],
+                'links',
+                'meta',
+            ]);
     }
 }

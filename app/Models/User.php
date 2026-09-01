@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
@@ -78,5 +79,23 @@ class User extends Authenticatable
             'id',
             'kode_sub_kegiatan'
         )->withPivot('created_at');
+    }
+
+    /**
+     * Sub kegiatan codes mapped to this user when role is PPK.
+     * Returns null when the user should not be scoped.
+     *
+     * @return array<int, string>|null
+     */
+    public function ppkSubKegiatanCodes(): ?array
+    {
+        if (strtoupper((string) $this->role) !== 'PPK') {
+            return null;
+        }
+
+        return DB::table('dev.user_sub_kegiatan')
+            ->where('user_id', $this->id)
+            ->pluck('kode_sub_kegiatan')
+            ->all();
     }
 }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class RefSubKegiatan extends Model
@@ -25,6 +26,14 @@ class RefSubKegiatan extends Model
         'kode_kegiatan',
         'nama_sub_kegiatan',
     ];
+
+    /**
+     * @return BelongsTo<RefKegiatan, $this>
+     */
+    public function kegiatan(): BelongsTo
+    {
+        return $this->belongsTo(RefKegiatan::class, 'kode_kegiatan', 'kode_kegiatan');
+    }
 
     /**
      * @return BelongsToMany<User, $this>
