@@ -126,7 +126,7 @@ class AuthApiTest extends TestCase
     public function test_ppk_user_login_includes_kegiatan_and_program_details(): void
     {
         $skpd = RefSkpd::first();
-        $subKegiatan = RefSubKegiatan::with('kegiatan.program')->first();
+        $subKegiatan = RefSubKegiatan::with('kegiatan.program.bidangUrusan')->first();
 
         $user = User::create([
             'nama' => 'PPK Test User',
@@ -153,7 +153,7 @@ class AuthApiTest extends TestCase
             $response->assertJsonStructure([
                 'user' => [
                     'programs' => [
-                        '*' => ['kode_program', 'nama_program'],
+                        '*' => ['kode_program', 'kode_bidang_urusan', 'nama_bidang_urusan', 'nama_program'],
                     ],
                     'kegiatans' => [
                         '*' => ['kode_kegiatan', 'kode_program', 'nama_kegiatan'],
@@ -164,7 +164,7 @@ class AuthApiTest extends TestCase
                             'kode_kegiatan',
                             'nama_sub_kegiatan',
                             'kegiatan' => ['kode_kegiatan', 'nama_kegiatan', 'kode_program'],
-                            'program' => ['kode_program', 'nama_program'],
+                            'program' => ['kode_program', 'kode_bidang_urusan', 'nama_bidang_urusan', 'nama_program'],
                         ],
                     ],
                 ],
@@ -172,13 +172,14 @@ class AuthApiTest extends TestCase
 
             $response->assertJsonPath('user.sub_kegiatan.0.kegiatan.kode_kegiatan', $subKegiatan->kegiatan->kode_kegiatan);
             $response->assertJsonPath('user.sub_kegiatan.0.program.kode_program', $subKegiatan->kegiatan->program->kode_program);
+            $response->assertJsonPath('user.sub_kegiatan.0.program.kode_bidang_urusan', $subKegiatan->kegiatan->program->kode_bidang_urusan);
         }
     }
 
     public function test_ppk_user_me_includes_kegiatan_and_program_details(): void
     {
         $skpd = RefSkpd::first();
-        $subKegiatan = RefSubKegiatan::with('kegiatan.program')->first();
+        $subKegiatan = RefSubKegiatan::with('kegiatan.program.bidangUrusan')->first();
 
         $user = User::create([
             'nama' => 'PPK Test Me',
@@ -202,6 +203,7 @@ class AuthApiTest extends TestCase
         if ($subKegiatan && $subKegiatan->kegiatan && $subKegiatan->kegiatan->program) {
             $response->assertJsonPath('user.sub_kegiatan.0.kegiatan.kode_kegiatan', $subKegiatan->kegiatan->kode_kegiatan);
             $response->assertJsonPath('user.sub_kegiatan.0.program.kode_program', $subKegiatan->kegiatan->program->kode_program);
+            $response->assertJsonPath('user.sub_kegiatan.0.program.kode_bidang_urusan', $subKegiatan->kegiatan->program->kode_bidang_urusan);
         }
     }
 }

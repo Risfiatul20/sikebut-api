@@ -44,7 +44,7 @@ class SipdPenetapanApbdController extends Controller
     {
         $query = $this->scopedQuery($request)->with(['subUnit.parent', 'subKegiatan.kegiatan.program', 'standarHarga', 'akun.indikator']);
 
-        $tahun = $request->query('tahun');
+        $tahun = $request->query('tahun', date('Y'));
         if ($tahun !== null && $tahun !== '') {
             $query->where('tahun', (int) $tahun);
         }

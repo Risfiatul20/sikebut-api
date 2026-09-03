@@ -20,7 +20,7 @@ class AuthController extends Controller
     {
         $validated = $request->validated();
 
-        $user = User::with(['skpd', 'subKegiatan.kegiatan.program'])
+        $user = User::with(['skpd', 'subKegiatan.kegiatan.program.bidangUrusan'])
             ->where('username', $validated['username'])
             ->first();
 
@@ -48,7 +48,7 @@ class AuthController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
-        $user->loadMissing(['skpd', 'subKegiatan.kegiatan.program']);
+        $user->loadMissing(['skpd', 'subKegiatan.kegiatan.program.bidangUrusan']);
 
         return response()->json([
             'user' => new UserResource($user),

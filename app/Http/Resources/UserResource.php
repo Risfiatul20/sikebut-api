@@ -52,6 +52,8 @@ class UserResource extends JsonResource
 
                         $data['program'] = $item->relationLoaded('kegiatan') && $item->kegiatan?->relationLoaded('program') && $item->kegiatan?->program ? [
                             'kode_program' => $item->kegiatan->program->kode_program,
+                            'kode_bidang_urusan' => $item->kegiatan->program->kode_bidang_urusan,
+                            'nama_bidang_urusan' => $item->kegiatan->program->relationLoaded('bidangUrusan') ? $item->kegiatan->program->bidangUrusan?->nama_bidang_urusan : null,
                             'nama_program' => $item->kegiatan->program->nama_program,
                         ] : null;
                     }
@@ -67,6 +69,8 @@ class UserResource extends JsonResource
                     ->values()
                     ->map(fn ($program) => [
                         'kode_program' => $program->kode_program,
+                        'kode_bidang_urusan' => $program->kode_bidang_urusan,
+                        'nama_bidang_urusan' => $program->relationLoaded('bidangUrusan') ? $program->bidangUrusan?->nama_bidang_urusan : null,
                         'nama_program' => $program->nama_program,
                     ]);
             }),
