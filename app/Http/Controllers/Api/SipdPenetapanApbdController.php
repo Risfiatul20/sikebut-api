@@ -42,7 +42,7 @@ class SipdPenetapanApbdController extends Controller
      */
     public function index(Request $request): AnonymousResourceCollection
     {
-        $query = $this->scopedQuery($request)->with(['subUnit.parent', 'subKegiatan.kegiatan.program', 'standarHarga', 'akun.indikator']);
+        $query = $this->scopedQuery($request)->with(['subUnit.parent', 'subKegiatan.kegiatan.program.bidangUrusan.urusan', 'standarHarga', 'akun.indikator']);
 
         $tahun = $request->query('tahun', date('Y'));
         if ($tahun !== null && $tahun !== '') {
