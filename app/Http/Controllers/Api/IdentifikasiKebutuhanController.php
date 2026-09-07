@@ -186,4 +186,75 @@ class IdentifikasiKebutuhanController extends Controller
             'message' => 'Identifikasi kebutuhan deleted successfully',
         ]);
     }
+
+    /**
+     * Submit identifikasi kebutuhan for review.
+     */
+    public function submit(Request $request, int $id): JsonResponse
+    {
+        $kebutuhan = $this->scopedQuery($request, false)->findOrFail($id);
+
+        $kebutuhan->update([
+            'status_review' => 'Diajukan',
+        ]);
+
+        $kebutuhan->load(self::RELATIONS);
+
+        return response()->json([
+            'message' => 'Identifikasi kebutuhan berhasil diajukan untuk review',
+            'data' => new IdentifikasiKebutuhanResource($kebutuhan),
+        ]);
+    }
+
+    /**
+     * Verify / approve identifikasi kebutuhan.
+     */
+    public function verify(Request $request, int $id): JsonResponse
+    {
+        $kebutuhan = $this->scopedQuery($request, false)->findOrFail($id);
+
+        $validated = $request->validate([
+            'catatan_reviewer' => 'nullable|string',
+            'catatan_reviewer_detail' => 'nullable|array',
+        ]);
+
+        $kebutuhan->update([
+            'status_review' => 'Disetujui',
+            'catatan_reviewer' => $validated['catatan_reviewer'] ?? $kebutuhan->catatan_reviewer,
+            'catatan_reviewer_detail' => $validated['catatan_reviewer_detail'] ?? $kebutuhan->catatan_reviewer_detail,
+        ]);
+
+        $kebutuhan->load(self::RELATIONS);
+
+        return response()->json([
+            'message' => 'Identifikasi kebutuhan berhasil disetujui',
+            'data' => new IdentifikasiKebutuhanResource($kebutuhan),
+        ]);
+    }
+
+    /**
+     * Return identifikasi kebutuhan for revision.
+     */
+    public function returnForRevision(Request $request, int $id): JsonResponse
+    {
+        $kebutuhan = $this->scopedQuery($request, false)->findOrFail($id);
+
+        $validated = $request->validate([
+            'catatan_reviewer' => 'required|string',
+            'catatan_reviewer_detail' => 'nullable|array',
+        ]);
+
+        $kebutuhan->update([
+            'status_review' => 'Perlu Perbaikan',
+            'catatan_reviewer' => $validated['catatan_reviewer'],
+            'catatan_reviewer_detail' => $validated['catatan_reviewer_detail'] ?? $kebutuhan->catatan_reviewer_detail,
+        ]);
+
+        $kebutuhan->load(self::RELATIONS);
+
+        return response()->json([
+            'message' => 'Identifikasi kebutuhan berhasil dikembalikan untuk perbaikan',
+            'data' => new IdentifikasiKebutuhanResource($kebutuhan),
+        ]);
+    }
 }

@@ -1,0 +1,16 @@
+node_modules
+vendor
+storage
+bootstrap/cache
+public/build
+public/hot
+public/storage
+.phpunit.result.cache
+.php-cs-fixer.cache
+.phpstorm.meta.php
+.idea
+*.swp
+*.swo
+.env
+.env.backup
+docker-compose.override.yml

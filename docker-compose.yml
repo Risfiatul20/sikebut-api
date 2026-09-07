@@ -1,0 +1,58 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    image: sikebut-api:1.0.0
+    restart: unless-stopped
+    expose: ["9000"]
+    env_file: .env.production
+    volumes:
+      - storage:/var/www/html/storage
+    networks:
+      - db-network
+      - app-network
+    deploy:
+      resources:
+        limits: { cpus: "1.000", memory: 1024M }
+        reservations: { cpus: "0.500", memory: 512M }
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(0);"]
+      interval: 30s
+      retries: 3
+
+  queue:
+    image: sikebut-api:1.0.0
+    restart: unless-stopped
+    command: ["php","artisan","queue:work","redis","--tries=3","--max-time=3600","--backoff=30"]
+    env_file: .env.production
+    volumes: [storage:/var/www/html/storage]
+    networks:
+      - db-network
+      - app-network
+    deploy:
+      resources:
+        limits: { cpus: "0.750", memory: 768M }
+        reservations: { cpus: "0.250", memory: 384M }
+
+  scheduler:
+    image: sikebut-api:1.0.0
+    restart: unless-stopped
+    command: ["sh","-c","while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
+    env_file: .env.production
+    networks:
+      - db-network
+    deploy:
+      resources:
+        limits: { cpus: "0.250", memory: 256M }
+
+networks:
+  db-network:
+    external: true
+    name: db-network
+  app-network:
+    external: true
+    name: app-network
+
+volumes:
+  storage:

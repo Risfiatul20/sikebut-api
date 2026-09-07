@@ -35,6 +35,9 @@ Route::prefix('v1')->group(function () {
         Route::get('identifikasi-kebutuhan/{id}', [IdentifikasiKebutuhanController::class, 'show'])->whereNumber('id');
         Route::put('identifikasi-kebutuhan/{id}', [IdentifikasiKebutuhanController::class, 'update'])->whereNumber('id');
         Route::delete('identifikasi-kebutuhan/{id}', [IdentifikasiKebutuhanController::class, 'destroy'])->whereNumber('id');
+        Route::post('identifikasi-kebutuhan/{id}/submit', [IdentifikasiKebutuhanController::class, 'submit'])->whereNumber('id');
+        Route::post('identifikasi-kebutuhan/{id}/verify', [IdentifikasiKebutuhanController::class, 'verify'])->whereNumber('id');
+        Route::post('identifikasi-kebutuhan/{id}/return', [IdentifikasiKebutuhanController::class, 'returnForRevision'])->whereNumber('id');
         Route::get('sipd-penetapan-apbd/modal', [SipdPenetapanApbdController::class, 'modal']);
         Route::get('sipd-penetapan-apbd', [SipdPenetapanApbdController::class, 'index']);
         Route::get('sipd-penetapan-apbd/{id}', [SipdPenetapanApbdController::class, 'show'])->whereNumber('id');
