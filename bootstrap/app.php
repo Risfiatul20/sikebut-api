@@ -17,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'cache.client' => ClientCache::class,
         ]);
+
+        // API selalu merespons 401 JSON (tanpa redirect route('login') yang tidak ada),
+        // bahkan ketika klien tidak mengirim header Accept: application/json.
+        $middleware->redirectGuestsTo(fn (Request $request) => $request->is('api/*') ? null : route('login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

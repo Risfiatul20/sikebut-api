@@ -97,6 +97,11 @@ return [
             'prefix_indexes' => true,
             'search_path' => env('DB_SCHEMA', 'dev,public'),
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            'options' => [
+                // Server DB jauh: gunakan ulang koneksi antar-request agar
+                // tidak membayar biaya handshake/TLS (~1-2,6 dtk) tiap request.
+                \PDO::ATTR_PERSISTENT => true,
+            ],
         ],
 
         'sqlsrv' => [

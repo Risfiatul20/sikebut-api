@@ -11,7 +11,6 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -203,10 +202,13 @@ class RefAkunController extends Controller
                 }
             }
 
-            return $query->orderBy('kode_6', 'asc')->get();
+            // Cache array polos (JSON-safe), BUKAN object Eloquent — mencegah
+            // error unserialize (__PHP_Incomplete_Class) saat struktur model berubah.
+            return $query->orderBy('kode_6', 'asc')->get()->toArray();
         });
 
-        $collection = new Collection($items->all());
+        // Hidrasi ulang dari array ke model Eloquent agar resource tetap bekerja
+        $collection = RefAkunView::hydrate($items);
 
         if ($perPage > 0) {
             $paginator = new LengthAwarePaginator(

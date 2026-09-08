@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Imports\RkbmdPemeliharaanImport;
 use App\Imports\RkbmdPengadaanImport;
+use App\Imports\SipdPenetapanApbdImport;
 use DB;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -70,6 +71,61 @@ class ImportController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'File pemeliharaan berhasil diunggah dan sedang diproses.',
+            'import_id' => $importId,
+        ], 200);
+    }
+
+    public function importSipdPenetapanApbd(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls,csv|max:20480', // Maksimal 20MB
+        ]);
+
+        $importId = (string) Str::uuid();
+        $file = $request->file('file');
+        $filePath = $file->store('imports');
+
+        // 1. Catat status awal ke database
+        DB::table('dev.import_statuses')->insert([
+            'id' => $importId,
+            'user_id' => auth()->id() ?? null,
+            'file_name' => 'sipd_penetapan_apbd',
+            'status' => 'processing',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // 2. Jalankan impor SECARA SINKRON (tanpa worker queue) agar pasti selesai.
+        //    Setelah selesai, event AfterImport pada job otomatis menandai status 'completed'.
+        try {
+            Excel::import(
+                new SipdPenetapanApbdImport(
+                    $importId,
+                    $request->integer('tahun') ?: null,
+                    $request->string('nama_versi')->toString() ?: null
+                ),
+                $filePath
+            );
+        } catch (\Throwable $e) {
+            DB::table('dev.import_statuses')
+                ->where('id', $importId)
+                ->update([
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage(),
+                    'updated_at' => now(),
+                ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Impor gagal: '.$e->getMessage(),
+                'import_id' => $importId,
+            ], 422);
+        }
+
+        // 3. Kembalikan ID Tracking ke Next.js (status sudah 'completed')
+        return response()->json([
+            'success' => true,
+            'message' => 'File penetapan APBD berhasil diimpor ke database.',
             'import_id' => $importId,
         ], 200);
     }

@@ -136,120 +136,107 @@ class SipdPenetapanApbdController extends Controller
 
         $tahunAktif = (int) $context->tahun;
 
-        // 2. Summary SKPD
-        $skpdSummary = DB::table('dev.ref_sipd_view as rsv')
+        // 2-6. Agregasi pagu RKA & kebutuhan per level hierarki — dioptimasi dari 10 query
+        // beruntun menjadi 2 query agregat (1 untuk pagu SIPD, 1 untuk kebutuhan terpakai),
+        // lalu diakumulasi di PHP. Hasil akhir identik dengan ringkasan 5 level sebelumnya.
+        $sipdSummaryRows = DB::table('dev.ref_sipd_view as rsv')
             ->where('rsv.kode_skpd', $context->kode_skpd)
             ->where('rsv.tahun', $tahunAktif)
             ->select([
+                'rsv.kode_sub_unit',
+                'rsv.kode_program',
+                'rsv.kode_kegiatan',
+                'rsv.kode_sub_kegiatan',
                 DB::raw('COALESCE(SUM(rsv.pagu), 0) as total_pagu'),
                 DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN rsv.pagu ELSE 0 END), 0) as total_pagu_pengadaan'),
                 DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN 0 ELSE rsv.pagu END), 0) as total_pagu_non_pengadaan'),
             ])
-            ->first();
+            ->groupBy(['rsv.kode_sub_unit', 'rsv.kode_program', 'rsv.kode_kegiatan', 'rsv.kode_sub_kegiatan'])
+            ->get();
 
-        $skpdKebutuhan = (float) DB::table('dev.identifikasi_kebutuhan_anggaran as ika')
+        $zero = static fn (): array => ['pagu' => 0.0, 'pengadaan' => 0.0, 'non' => 0.0];
+        $add = static function (array &$bucket, object $row): void {
+            $bucket['pagu'] += (float) $row->total_pagu;
+            $bucket['pengadaan'] += (float) $row->total_pagu_pengadaan;
+            $bucket['non'] += (float) $row->total_pagu_non_pengadaan;
+        };
+
+        $skpd = $zero();
+        $subUnit = $zero();
+        $program = $zero();
+        $kegiatan = $zero();
+        $subKegiatan = $zero();
+        foreach ($sipdSummaryRows as $row) {
+            $add($skpd, $row);
+            if ($row->kode_sub_unit === $context->kode_sub_unit) {
+                $add($subUnit, $row);
+                if ($row->kode_program === $context->kode_program) {
+                    $add($program, $row);
+                    if ($row->kode_kegiatan === $context->kode_kegiatan) {
+                        $add($kegiatan, $row);
+                        if ($row->kode_sub_kegiatan === $context->kode_sub_kegiatan) {
+                            $add($subKegiatan, $row);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Kebutuhan (pagu terpakai identifikasi) per sub kegiatan dalam lingkup OPD.
+        $kebutuhanRows = DB::table('dev.identifikasi_kebutuhan_anggaran as ika')
             ->join('dev.sipd_penetapan_apbd as spa', 'ika.id_sipd_penetapan', '=', 'spa.id')
-            ->join('dev.ref_skpd as sub_unit', 'spa.kode_sub_unit', '=', 'sub_unit.kode_skpd')
-            ->where(DB::raw('COALESCE(sub_unit.parent_kode_skpd, sub_unit.kode_skpd)'), $context->kode_skpd)
+            ->join('dev.ref_skpd as su', 'spa.kode_sub_unit', '=', 'su.kode_skpd')
+            ->leftJoin('dev.ref_sub_kegiatan as rsk', 'spa.kode_sub_kegiatan', '=', 'rsk.kode_sub_kegiatan')
+            ->leftJoin('dev.ref_kegiatan as rk', 'rsk.kode_kegiatan', '=', 'rk.kode_kegiatan')
+            ->where(DB::raw('COALESCE(su.parent_kode_skpd, su.kode_skpd)'), $context->kode_skpd)
             ->where('spa.tahun', $tahunAktif)
-            ->sum('ika.pagu');
-
-        $skpdTotalPagu = (float) ($skpdSummary?->total_pagu ?? 0);
-        $skpdPaguPengadaan = (float) ($skpdSummary?->total_pagu_pengadaan ?? 0);
-        $skpdPaguNonPengadaan = (float) ($skpdSummary?->total_pagu_non_pengadaan ?? 0);
-
-        // 3. Summary Sub Unit
-        $subUnitSummary = DB::table('dev.ref_sipd_view as rsv')
-            ->where('rsv.kode_sub_unit', $context->kode_sub_unit)
-            ->where('rsv.tahun', $tahunAktif)
             ->select([
-                DB::raw('COALESCE(SUM(rsv.pagu), 0) as total_pagu'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN rsv.pagu ELSE 0 END), 0) as total_pagu_pengadaan'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN 0 ELSE rsv.pagu END), 0) as total_pagu_non_pengadaan'),
+                'spa.kode_sub_unit',
+                'rk.kode_program',
+                'rk.kode_kegiatan',
+                'spa.kode_sub_kegiatan',
+                DB::raw('COALESCE(SUM(ika.pagu), 0) as total'),
             ])
-            ->first();
+            ->groupBy(['spa.kode_sub_unit', 'rk.kode_program', 'rk.kode_kegiatan', 'spa.kode_sub_kegiatan'])
+            ->get();
 
-        $subUnitKebutuhan = (float) DB::table('dev.identifikasi_kebutuhan_anggaran as ika')
-            ->join('dev.sipd_penetapan_apbd as spa', 'ika.id_sipd_penetapan', '=', 'spa.id')
-            ->where('spa.kode_sub_unit', $context->kode_sub_unit)
-            ->where('spa.tahun', $tahunAktif)
-            ->sum('ika.pagu');
+        $skpdKebutuhan = 0.0;
+        $subUnitKebutuhan = 0.0;
+        $programKebutuhan = 0.0;
+        $kegiatanKebutuhan = 0.0;
+        $subKegiatanKebutuhan = 0.0;
+        foreach ($kebutuhanRows as $row) {
+            $need = (float) $row->total;
+            $skpdKebutuhan += $need;
+            if ($row->kode_sub_unit === $context->kode_sub_unit) {
+                $subUnitKebutuhan += $need;
+                if ($row->kode_program === $context->kode_program) {
+                    $programKebutuhan += $need;
+                    if ($row->kode_kegiatan === $context->kode_kegiatan) {
+                        $kegiatanKebutuhan += $need;
+                        if ($row->kode_sub_kegiatan === $context->kode_sub_kegiatan) {
+                            $subKegiatanKebutuhan += $need;
+                        }
+                    }
+                }
+            }
+        }
 
-        $subUnitTotalPagu = (float) ($subUnitSummary?->total_pagu ?? 0);
-        $subUnitPaguPengadaan = (float) ($subUnitSummary?->total_pagu_pengadaan ?? 0);
-        $subUnitPaguNonPengadaan = (float) ($subUnitSummary?->total_pagu_non_pengadaan ?? 0);
-
-        // 4. Summary Program
-        $programSummary = DB::table('dev.ref_sipd_view as rsv')
-            ->where('rsv.kode_sub_unit', $context->kode_sub_unit)
-            ->where('rsv.kode_program', $context->kode_program)
-            ->where('rsv.tahun', $tahunAktif)
-            ->select([
-                DB::raw('COALESCE(SUM(rsv.pagu), 0) as total_pagu'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN rsv.pagu ELSE 0 END), 0) as total_pagu_pengadaan'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN 0 ELSE rsv.pagu END), 0) as total_pagu_non_pengadaan'),
-            ])
-            ->first();
-
-        $programKebutuhan = (float) DB::table('dev.identifikasi_kebutuhan_anggaran as ika')
-            ->join('dev.sipd_penetapan_apbd as spa', 'ika.id_sipd_penetapan', '=', 'spa.id')
-            ->join('dev.ref_sub_kegiatan as rsk', 'spa.kode_sub_kegiatan', '=', 'rsk.kode_sub_kegiatan')
-            ->join('dev.ref_kegiatan as rk', 'rsk.kode_kegiatan', '=', 'rk.kode_kegiatan')
-            ->where('spa.kode_sub_unit', $context->kode_sub_unit)
-            ->where('rk.kode_program', $context->kode_program)
-            ->where('spa.tahun', $tahunAktif)
-            ->sum('ika.pagu');
-
-        $programTotalPagu = (float) ($programSummary?->total_pagu ?? 0);
-        $programPaguPengadaan = (float) ($programSummary?->total_pagu_pengadaan ?? 0);
-        $programPaguNonPengadaan = (float) ($programSummary?->total_pagu_non_pengadaan ?? 0);
-
-        // 5. Summary Kegiatan
-        $kegiatanSummary = DB::table('dev.ref_sipd_view as rsv')
-            ->where('rsv.kode_sub_unit', $context->kode_sub_unit)
-            ->where('rsv.kode_kegiatan', $context->kode_kegiatan)
-            ->where('rsv.tahun', $tahunAktif)
-            ->select([
-                DB::raw('COALESCE(SUM(rsv.pagu), 0) as total_pagu'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN rsv.pagu ELSE 0 END), 0) as total_pagu_pengadaan'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN 0 ELSE rsv.pagu END), 0) as total_pagu_non_pengadaan'),
-            ])
-            ->first();
-
-        $kegiatanKebutuhan = (float) DB::table('dev.identifikasi_kebutuhan_anggaran as ika')
-            ->join('dev.sipd_penetapan_apbd as spa', 'ika.id_sipd_penetapan', '=', 'spa.id')
-            ->join('dev.ref_sub_kegiatan as rsk', 'spa.kode_sub_kegiatan', '=', 'rsk.kode_sub_kegiatan')
-            ->where('spa.kode_sub_unit', $context->kode_sub_unit)
-            ->where('rsk.kode_kegiatan', $context->kode_kegiatan)
-            ->where('spa.tahun', $tahunAktif)
-            ->sum('ika.pagu');
-
-        $kegiatanTotalPagu = (float) ($kegiatanSummary?->total_pagu ?? 0);
-        $kegiatanPaguPengadaan = (float) ($kegiatanSummary?->total_pagu_pengadaan ?? 0);
-        $kegiatanPaguNonPengadaan = (float) ($kegiatanSummary?->total_pagu_non_pengadaan ?? 0);
-
-        // 6. Summary Sub Kegiatan
-        $subKegiatanSummary = DB::table('dev.ref_sipd_view as rsv')
-            ->where('rsv.kode_sub_unit', $context->kode_sub_unit)
-            ->where('rsv.kode_sub_kegiatan', $context->kode_sub_kegiatan)
-            ->where('rsv.tahun', $tahunAktif)
-            ->select([
-                DB::raw('COALESCE(SUM(rsv.pagu), 0) as total_pagu'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN rsv.pagu ELSE 0 END), 0) as total_pagu_pengadaan'),
-                DB::raw('COALESCE(SUM(CASE WHEN rsv.is_belanja_pengadaan = true THEN 0 ELSE rsv.pagu END), 0) as total_pagu_non_pengadaan'),
-            ])
-            ->first();
-
-        $subKegiatanKebutuhan = (float) DB::table('dev.identifikasi_kebutuhan_anggaran as ika')
-            ->join('dev.sipd_penetapan_apbd as spa', 'ika.id_sipd_penetapan', '=', 'spa.id')
-            ->where('spa.kode_sub_unit', $context->kode_sub_unit)
-            ->where('spa.kode_sub_kegiatan', $context->kode_sub_kegiatan)
-            ->where('spa.tahun', $tahunAktif)
-            ->sum('ika.pagu');
-
-        $subKegiatanTotalPagu = (float) ($subKegiatanSummary?->total_pagu ?? 0);
-        $subKegiatanPaguPengadaan = (float) ($subKegiatanSummary?->total_pagu_pengadaan ?? 0);
-        $subKegiatanPaguNonPengadaan = (float) ($subKegiatanSummary?->total_pagu_non_pengadaan ?? 0);
+        $skpdTotalPagu = $skpd['pagu'];
+        $skpdPaguPengadaan = $skpd['pengadaan'];
+        $skpdPaguNonPengadaan = $skpd['non'];
+        $subUnitTotalPagu = $subUnit['pagu'];
+        $subUnitPaguPengadaan = $subUnit['pengadaan'];
+        $subUnitPaguNonPengadaan = $subUnit['non'];
+        $programTotalPagu = $program['pagu'];
+        $programPaguPengadaan = $program['pengadaan'];
+        $programPaguNonPengadaan = $program['non'];
+        $kegiatanTotalPagu = $kegiatan['pagu'];
+        $kegiatanPaguPengadaan = $kegiatan['pengadaan'];
+        $kegiatanPaguNonPengadaan = $kegiatan['non'];
+        $subKegiatanTotalPagu = $subKegiatan['pagu'];
+        $subKegiatanPaguPengadaan = $subKegiatan['pengadaan'];
+        $subKegiatanPaguNonPengadaan = $subKegiatan['non'];
 
         // 7. List Standar Harga / Rekening
         $items = DB::table('dev.sipd_penetapan_apbd as spa')
@@ -369,6 +356,31 @@ class SipdPenetapanApbdController extends Controller
 
         return response()->json([
             'data' => new SipdPenetapanApbdResource($record),
+        ]);
+    }
+
+    /**
+     * Daftar versi Penetapan APBD yang tersedia di database (dari tabel impor).
+     */
+    public function versions(Request $request): JsonResponse
+    {
+        $rows = DB::table('dev.sipd_penetapan_apbd')
+            ->selectRaw('versi, tahun, COUNT(*) as total_rincian, COALESCE(SUM(pagu), 0) as total_pagu')
+            ->groupBy('versi', 'tahun')
+            ->orderBy('tahun', 'desc')
+            ->orderByRaw('versi::int DESC')
+            ->get();
+
+        return response()->json([
+            'data' => $rows->map(fn ($r) => [
+                'versi' => (int) $r->versi,
+                'nama_versi' => 'Versi '.$r->versi.' - Penetapan APBD '.$r->tahun,
+                'tahun' => (int) $r->tahun,
+                'total_rincian' => (int) $r->total_rincian,
+                'total_pagu' => (float) $r->total_pagu,
+                'tanggal_impor' => null,
+                'status' => 'Aktif',
+            ])->values(),
         ]);
     }
 }

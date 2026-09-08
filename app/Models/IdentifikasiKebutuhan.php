@@ -100,4 +100,15 @@ class IdentifikasiKebutuhan extends Model
     {
         return $this->belongsTo(RefSubKegiatan::class, 'kode_sub_kegiatan', 'kode_sub_kegiatan');
     }
+
+    /**
+     * Riwayat / audit trail perubahan status paket.
+     *
+     * @return HasMany<IdentifikasiKebutuhanRiwayat, $this>
+     */
+    public function riwayat(): HasMany
+    {
+        return $this->hasMany(IdentifikasiKebutuhanRiwayat::class, 'identifikasi_kebutuhan_id', 'id')
+            ->latest('created_at');
+    }
 }

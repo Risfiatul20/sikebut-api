@@ -11,9 +11,6 @@ use App\Models\RefProgram;
 use App\Models\RefSubKegiatan;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class RefProgramController extends Controller
@@ -48,77 +45,66 @@ class RefProgramController extends Controller
         $ppkCodes = $this->ppkSubKegiatanCodes($request);
         $perPage = (int) $request->query('per_page', 0);
 
-        $scopeKey = $ppkCodes !== null ? 'ppk:'.implode(',', $ppkCodes) : 'all';
-        $cacheKey = "ref-programs:{$scopeKey}:{$kodeSkpd}:{$kodeSubKegiatan}:{$search}";
+        // Catatan: sengaja TANPA cache aplikasi (Cache::remember). Menyimpan object
+        // Eloquent di cache file rawan error unserialize (__PHP_Incomplete_Class)
+        // saat struktur model berubah. Tabel referensi ini kecil & sudah dilindungi
+        // cache HTTP (ClientCache) + cache fetch Next.js.
 
-        $items = Cache::remember($cacheKey, now()->addHours(6), function () use ($ppkCodes, $kodeSkpd, $kodeSubKegiatan, $search) {
-            $query = RefProgram::with('bidangUrusan');
+        $query = RefProgram::with('bidangUrusan');
 
-            if ($ppkCodes !== null) {
-                $query->whereIn('kode_program', function ($q) use ($ppkCodes) {
-                    $q->select('kode_program')
-                        ->from('dev.ref_kegiatan')
-                        ->whereIn('kode_kegiatan', function ($q2) use ($ppkCodes) {
-                            $q2->select('kode_kegiatan')
-                                ->from('dev.ref_sub_kegiatan')
-                                ->whereIn('kode_sub_kegiatan', $ppkCodes);
-                        });
-                });
-            }
-
-            if ($kodeSubKegiatan) {
-                $query->whereIn('kode_program', function ($q) use ($kodeSubKegiatan) {
-                    $q->select('kode_program')
-                        ->from('dev.ref_kegiatan')
-                        ->whereIn('kode_kegiatan', function ($q2) use ($kodeSubKegiatan) {
-                            $q2->select('kode_kegiatan')
-                                ->from('dev.ref_sub_kegiatan')
-                                ->where('kode_sub_kegiatan', $kodeSubKegiatan);
-                        });
-                });
-            }
-
-            if ($kodeSkpd) {
-                $query->whereIn('kode_program', function ($q) use ($kodeSkpd) {
-                    $q->select('rk.kode_program')
-                        ->from('dev.ref_kegiatan as rk')
-                        ->whereIn('rk.kode_kegiatan', function ($q2) use ($kodeSkpd) {
-                            $q2->select('rsk.kode_kegiatan')
-                                ->from('dev.ref_sub_kegiatan as rsk')
-                                ->whereIn('rsk.kode_sub_kegiatan', function ($q3) use ($kodeSkpd) {
-                                    $q3->select('kode_sub_kegiatan')
-                                        ->from('dev.sipd_penetapan_apbd')
-                                        ->where('kode_sub_unit', $kodeSkpd)
-                                        ->whereNotNull('kode_sub_kegiatan');
-                                });
-                        });
-                });
-            }
-
-            if ($search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('kode_program', 'ilike', "%{$search}%")
-                        ->orWhere('nama_program', 'ilike', "%{$search}%");
-                });
-            }
-
-            return $query->orderBy('kode_program', 'asc')->get();
-        });
-
-        $collection = new Collection($items->all());
-
-        if ($perPage > 0) {
-            $paginator = new LengthAwarePaginator(
-                $collection->forPage(1, $perPage),
-                $collection->count(),
-                $perPage,
-                1
-            );
-
-            return ProgramResource::collection($paginator);
+        if ($ppkCodes !== null) {
+            $query->whereIn('kode_program', function ($q) use ($ppkCodes) {
+                $q->select('kode_program')
+                    ->from('dev.ref_kegiatan')
+                    ->whereIn('kode_kegiatan', function ($q2) use ($ppkCodes) {
+                        $q2->select('kode_kegiatan')
+                            ->from('dev.ref_sub_kegiatan')
+                            ->whereIn('kode_sub_kegiatan', $ppkCodes);
+                    });
+            });
         }
 
-        return ProgramResource::collection($collection);
+        if ($kodeSubKegiatan) {
+            $query->whereIn('kode_program', function ($q) use ($kodeSubKegiatan) {
+                $q->select('kode_program')
+                    ->from('dev.ref_kegiatan')
+                    ->whereIn('kode_kegiatan', function ($q2) use ($kodeSubKegiatan) {
+                        $q2->select('kode_kegiatan')
+                            ->from('dev.ref_sub_kegiatan')
+                            ->where('kode_sub_kegiatan', $kodeSubKegiatan);
+                    });
+            });
+        }
+
+        if ($kodeSkpd) {
+            $query->whereIn('kode_program', function ($q) use ($kodeSkpd) {
+                $q->select('rk.kode_program')
+                    ->from('dev.ref_kegiatan as rk')
+                    ->whereIn('rk.kode_kegiatan', function ($q2) use ($kodeSkpd) {
+                        $q2->select('rsk.kode_kegiatan')
+                            ->from('dev.ref_sub_kegiatan as rsk')
+                            ->whereIn('rsk.kode_sub_kegiatan', function ($q3) use ($kodeSkpd) {
+                                $q3->select('kode_sub_kegiatan')
+                                    ->from('dev.sipd_penetapan_apbd')
+                                    ->where('kode_sub_unit', $kodeSkpd)
+                                    ->whereNotNull('kode_sub_kegiatan');
+                            });
+                    });
+            });
+        }
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('kode_program', 'ilike', "%{$search}%")
+                    ->orWhere('nama_program', 'ilike', "%{$search}%");
+            });
+        }
+
+        $query->orderBy('kode_program', 'asc');
+
+        $data = $perPage > 0 ? $query->paginate($perPage) : $query->get();
+
+        return ProgramResource::collection($data);
     }
 
     /**
