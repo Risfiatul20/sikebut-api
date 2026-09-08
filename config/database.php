@@ -98,9 +98,12 @@ return [
             'search_path' => env('DB_SCHEMA', 'dev,public'),
             'sslmode' => env('DB_SSLMODE', 'prefer'),
             'options' => [
-                // Server DB jauh: gunakan ulang koneksi antar-request agar
-                // tidak membayar biaya handshake/TLS (~1-2,6 dtk) tiap request.
+                // Server DB jauh (RTT ~60ms): ukur ulang koneksi antar-request agar
+                // tidak membayar biaya handshake/TLS (~0,9-2 dtk) tiap request.
                 \PDO::ATTR_PERSISTENT => true,
+                // PDO pgsql native prepare = 3 round-trip/query (Parse+Describe+Execute ≈ 197ms di RTT 60ms).
+                // Emulasi = 1-2 round-trip (≈98ms) — hampir 2x lebih cepat di jaringan jauh.
+                \PDO::ATTR_EMULATE_PREPARES => true,
             ],
         ],
 

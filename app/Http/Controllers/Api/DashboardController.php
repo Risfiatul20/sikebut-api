@@ -34,10 +34,10 @@ class DashboardController extends Controller
             $query->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
         }
 
-        // Verifikator HANYA melihat paket yang sudah diajukan (menunggu review) —
+        // Verifikator melihat paket Diajukan (menunggu review), Disetujui, dan Perlu Perbaikan —
         // draft (belum final) milik PPK tidak boleh terlihat di dashboard.
         if ($user && strtoupper((string) $user->role) === 'VERIFIKATOR') {
-            $query->where('ik.status_review', 'Diajukan');
+            $query->whereIn('ik.status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan']);
         }
 
         $base = clone $query;
@@ -86,7 +86,7 @@ class DashboardController extends Controller
             $terbaru->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
         }
         if ($user && strtoupper((string) $user->role) === 'VERIFIKATOR') {
-            $terbaru->where('ik.status_review', 'Diajukan');
+            $terbaru->whereIn('ik.status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan']);
         }
 
         $terbaru = $terbaru

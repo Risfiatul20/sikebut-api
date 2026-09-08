@@ -56,10 +56,14 @@ class IdentifikasiKebutuhanController extends Controller
             $query->whereIn('kode_sub_kegiatan', $ppkCodes);
         }
 
-        // Verifikator hanya boleh mengakses paket yang SUDAH DIAJUKAN (menunggu review).
-        // Paket Draft (belum final) milik PPK tidak boleh terlihat/diubah oleh Verifikator.
+        // Verifikator boleh melihat paket Diajukan (menunggu review), Disetujui, dan
+        // Perlu Perbaikan. Paket Draft (belum final) milik PPK TIDAK boleh terlihat/diubah.
         if ($user && strtoupper((string) $user->role) === 'VERIFIKATOR') {
-            $query->where('status_review', self::STATUS_DIAJUKAN);
+            $query->whereIn('status_review', [
+                self::STATUS_DIAJUKAN,
+                self::STATUS_DISETUJUI,
+                self::STATUS_PERLU_PERBAIKAN,
+            ]);
         }
 
         return $query;
@@ -127,6 +131,14 @@ class IdentifikasiKebutuhanController extends Controller
                 'Paket identifikasi kebutuhan dibuat.',
                 $request->user()->id
             );
+
+            // "Ajukan Langsung" dari wizard → langsung berstatus Diajukan → beri tahu Verifikator
+            if (($validated['status_review'] ?? 'Draft') === self::STATUS_DIAJUKAN) {
+                $this->notifyReviewers(
+                    $kebutuhan,
+                    'Paket "' . $kebutuhan->nama_paket . '" diajukan untuk review dan menunggu verifikasi.'
+                );
+            }
 
             return $kebutuhan;
         });
