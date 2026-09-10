@@ -339,6 +339,27 @@ CREATE TABLE dev.identifikasi_kebutuhan_anggaran (
 	CONSTRAINT fk_ref_standar_harga FOREIGN KEY (kode_standar_harga) REFERENCES dev.ref_standar_harga(kode_standar_harga)
 );
 
+-- dev.identifikasi_kebutuhan_rkbmd definition
+
+-- Drop table
+
+-- DROP TABLE dev.identifikasi_kebutuhan_rkbmd;
+
+CREATE TABLE dev.identifikasi_kebutuhan_rkbmd (
+	id bigserial NOT NULL,
+	identifikasi_kebutuhan_id int8 NOT NULL,
+	kode_standar varchar(50) NULL,
+	kode_rekening varchar(50) NULL,
+	id_pengadaan int8 NULL,
+	jenis_rkbmd varchar(20) NULL,
+	jumlah int4 NULL,
+	created_at timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	CONSTRAINT identifikasi_kebutuhan_rkbmd_pkey PRIMARY KEY (id),
+	CONSTRAINT identifikasi_kebutuhan_rkbmd_identifikasi_kebutuhan_id_fkey FOREIGN KEY (identifikasi_kebutuhan_id) REFERENCES dev.identifikasi_kebutuhan(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_ikr_identifikasi ON dev.identifikasi_kebutuhan_rkbmd USING btree (identifikasi_kebutuhan_id);
+
 -- dev.ref_sipd_view source
 
 CREATE OR REPLACE VIEW dev.ref_sipd_view
@@ -382,3 +403,40 @@ AS SELECT spa.kode_daerah,
      LEFT JOIN dev.ref_standar_harga standar ON standar.kode_standar_harga::text = spa.kode_standar_harga::text
      LEFT JOIN dev.ref_akun akun ON spa.kode_rekening::text = akun.kode_akun::text
      LEFT JOIN dev.akun_indikator_rkbmd ind ON spa.kode_rekening::text = ind.kode_akun::text;
+-- ============================================================
+-- WA GATEWAY (notifikasi WhatsApp)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS dev.wa_devices (
+    id bigserial NOT NULL,
+    device_id varchar(50) NOT NULL,
+    nama varchar(100) NULL,
+    nomor varchar(20) NULL,
+    status varchar(20) NOT NULL DEFAULT 'disconnected',
+    is_active boolean NOT NULL DEFAULT true,
+    priority int NOT NULL DEFAULT 0,
+    last_heartbeat timestamp NULL,
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+    updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+    CONSTRAINT wa_devices_pkey PRIMARY KEY (id),
+    CONSTRAINT wa_devices_device_id_key UNIQUE (device_id)
+);
+
+CREATE TABLE IF NOT EXISTS dev.wa_messages (
+    id bigserial NOT NULL,
+    user_id bigint NULL,
+    nomor_tujuan varchar(20) NOT NULL,
+    pesan text NOT NULL,
+    status varchar(20) NOT NULL DEFAULT 'pending',
+    device_id varchar(50) NULL,
+    error text NULL,
+    identifikasi_kebutuhan_id bigint NULL,
+    message_id varchar(64) NULL,
+    sent_at timestamp NULL,
+    created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+    CONSTRAINT wa_messages_pkey PRIMARY KEY (id),
+    CONSTRAINT fk_wa_messages_user FOREIGN KEY (user_id) REFERENCES dev.users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_wa_messages_kebutuhan FOREIGN KEY (identifikasi_kebutuhan_id) REFERENCES dev.identifikasi_kebutuhan(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_messages_status ON dev.wa_messages(status);
+CREATE INDEX IF NOT EXISTS idx_wa_messages_created ON dev.wa_messages(created_at DESC);

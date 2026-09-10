@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'wa_gateway' => [
+        // Service WA Gateway (Node.js + Baileys) — internal, jangan dibuka ke publik.
+        'url' => env('WA_GATEWAY_URL', 'http://127.0.0.1:3001'),
+        'key' => env('WA_GATEWAY_KEY', 'sikebut-wa-key-ganti-di-produksi'),
+    ],
+
 ];

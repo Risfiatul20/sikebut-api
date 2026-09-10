@@ -87,6 +87,7 @@ class RefProgramController extends Controller
                                 $q3->select('kode_sub_kegiatan')
                                     ->from('dev.sipd_penetapan_apbd')
                                     ->where('kode_sub_unit', $kodeSkpd)
+                                    ->where('pagu', '>', 0) // sub kegiatan dengan pagu kosong tidak ditampilkan
                                     ->whereNotNull('kode_sub_kegiatan');
                             });
                     });
@@ -145,6 +146,7 @@ class RefProgramController extends Controller
                         $q2->select('kode_sub_kegiatan')
                             ->from('dev.sipd_penetapan_apbd')
                             ->where('kode_sub_unit', $kodeSkpd)
+                            ->where('pagu', '>', 0) // sub kegiatan dengan pagu kosong tidak ditampilkan
                             ->whereNotNull('kode_sub_kegiatan');
                     });
             });
@@ -190,6 +192,7 @@ class RefProgramController extends Controller
                 $q->select('kode_sub_kegiatan')
                     ->from('dev.sipd_penetapan_apbd')
                     ->where('kode_sub_unit', $kodeSkpd)
+                    ->where('pagu', '>', 0) // sub kegiatan dengan pagu kosong tidak ditampilkan
                     ->whereNotNull('kode_sub_kegiatan');
             });
         }

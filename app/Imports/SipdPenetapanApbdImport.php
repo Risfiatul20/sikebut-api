@@ -21,11 +21,28 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
 
     protected $namaVersi;
 
+    // Nomor versi ditentukan SEKALI di constructor (bukan per chunk) supaya seluruh
+    // chunk masuk ke versi yang sama. Sebelumnya dihitung di collection() per chunk
+    // → setiap 500 baris membuat versi baru (bug versi parsial 3–36 di DB).
+    protected $nextVersi;
+
     public function __construct(string $importId, ?int $tahun = null, ?string $namaVersi = null)
     {
         $this->importId = $importId;
         $this->tahun = $tahun;
         $this->namaVersi = $namaVersi;
+        $this->nextVersi = $this->resolveNextVersi($tahun);
+    }
+
+    protected function resolveNextVersi(?int $tahun): int
+    {
+        $tahunResolved = $tahun ?: (int) date('Y');
+        $max = (int) DB::table('dev.sipd_penetapan_apbd')
+            ->where('tahun', $tahunResolved)
+            ->whereRaw("versi ~ '^[0-9]+$'")
+            ->max(DB::raw('versi::int'));
+
+        return $max + 1;
     }
 
     public function registerEvents(): array
@@ -62,14 +79,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
         // Tentukan tahun file (prioritas dari form impor, fallback ke baris pertama)
         $tahun = $this->tahun ?: (int) ($rows->first()['tahun'] ?? now()->year);
 
-        // Nomor versi baru = max versi numerik tahun bersangkutan + 1
-        $nextVersi = (int) DB::table('dev.sipd_penetapan_apbd')
-            ->where('tahun', $tahun)
-            ->whereRaw("versi ~ '^[0-9]+$'")
-            ->max(DB::raw('versi::int'));
-        $nextVersi++;
-
-        $namaVersi = $this->namaVersi ?: 'Versi '.$nextVersi.' - Penetapan APBD '.$tahun;
+        $nextVersi = $this->nextVersi;
 
         $now = now();
         $dataToInsert = [];
@@ -92,8 +102,10 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 'kode_sub_unit' => isset($row['kode_sub_unit']) && $row['kode_sub_unit'] !== ''
                     ? (string) $row['kode_sub_unit']
                     : (isset($row['kode_skpd']) ? (string) $row['kode_skpd'] : null),
-                'kode_sub_kegiatan' => $kodeSubKegiatan,
-                'kode_standar_harga' => $kodeStandar,
+                // Kolom ber-FK: kosong → NULL (PostgreSQL menolak '' tapi mengizinkan NULL),
+                // konsisten dengan baris NULL yang sudah ada di versi 1 & 2.
+                'kode_sub_kegiatan' => $kodeSubKegiatan !== '' ? $kodeSubKegiatan : null,
+                'kode_standar_harga' => $kodeStandar !== '' ? $kodeStandar : null,
                 'kode_rekening' => isset($row['kode_rekening']) ? (string) $row['kode_rekening'] : null,
                 'kode_sumber_dana' => isset($row['kode_sumber_dana']) ? (string) $row['kode_sumber_dana'] : null,
                 'nama_sumber_dana' => isset($row['nama_sumber_dana']) ? (string) $row['nama_sumber_dana'] : null,

@@ -11,6 +11,7 @@ use App\Models\IdentifikasiKebutuhan;
 use App\Models\IdentifikasiKebutuhanRiwayat;
 use App\Models\Notification;
 use App\Models\User;
+use App\Services\WaGatewayService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,12 +26,14 @@ class IdentifikasiKebutuhanController extends Controller
      */
     private const RELATIONS = [
         'anggaran.standarHarga',
+        'anggaran.sipdPenetapan.akun.indikator',
         'anggaran.sipdPenetapan',
         'pembuat',
         'skpd',
         'program',
         'kegiatan',
         'subKegiatan',
+        'rkbmdItems',
     ];
 
     /**
@@ -105,6 +108,61 @@ class IdentifikasiKebutuhanController extends Controller
     }
 
     /**
+     * Sinkronkan detail RKBMD (tabel identifikasi_kebutuhan_rkbmd) dari form_data.
+     * Pola sama seperti anggaran: hapus semua → tulis ulang dari payload terbaru.
+     * `id_pengadaan` menampung id RKBMD (id_pengadaan untuk jenis pengadaan,
+     * id_pemeliharaan untuk jenis pemeliharaan) — dibedakan kolom `jenis_rkbmd`.
+     *
+     * @param  array<string, mixed>  $formData
+     */
+    private function sinkronRkbmdItems(IdentifikasiKebutuhan $kebutuhan, array $formData): void
+    {
+        $kebutuhan->rkbmdItems()->delete();
+
+        $perAnggaran = $formData['rkbmd_per_anggaran'] ?? [];
+        if (! is_array($perAnggaran)) {
+            return;
+        }
+
+        $rows = [];
+        foreach ($perAnggaran as $item) {
+            $items = $item['items'] ?? [];
+            $kodeStandar = $item['kode_standar_harga'] ?? null;
+            $kodeRekening = $item['kode_rekening'] ?? null;
+
+            foreach ($items as $barang) {
+                $sumber = $barang['sumber'] ?? null;
+                if ($sumber !== 'pengadaan' && $sumber !== 'pemeliharaan') {
+                    continue;
+                }
+
+                // ID item RKBMD dari format "pengadaan-123" / "pemeliharaan-456".
+                $idRkbmd = null;
+                $idStr = $barang['id'] ?? null;
+                if (is_string($idStr)) {
+                    $parts = explode('-', $idStr, 2);
+                    if (isset($parts[1]) && ctype_digit($parts[1])) {
+                        $idRkbmd = (int) $parts[1];
+                    }
+                }
+
+                $rows[] = [
+                    'identifikasi_kebutuhan_id' => $kebutuhan->id,
+                    'kode_standar' => is_string($kodeStandar) ? $kodeStandar : null,
+                    'kode_rekening' => is_string($kodeRekening) ? $kodeRekening : null,
+                    'id_pengadaan' => $idRkbmd,
+                    'jenis_rkbmd' => $sumber,
+                    'jumlah' => isset($barang['jumlah']) ? (int) $barang['jumlah'] : 0,
+                ];
+            }
+        }
+
+        if ($rows !== []) {
+            $kebutuhan->rkbmdItems()->insert($rows);
+        }
+    }
+
+    /**
      * Persist a new identifikasi kebutuhan together with its anggaran rows.
      */
     public function store(StoreIdentifikasiKebutuhanRequest $request): JsonResponse
@@ -123,6 +181,8 @@ class IdentifikasiKebutuhanController extends Controller
             foreach ($validated['anggaran'] as $anggaran) {
                 $kebutuhan->anggaran()->create($anggaran);
             }
+
+            $this->sinkronRkbmdItems($kebutuhan, $validated['form_data'] ?? []);
 
             $this->catatRiwayat(
                 $kebutuhan,
@@ -209,6 +269,10 @@ class IdentifikasiKebutuhanController extends Controller
                 }
 
                 $kebutuhan->anggaran()->whereNotIn('id', $keep)->delete();
+            }
+
+            if (array_key_exists('form_data', $validated)) {
+                $this->sinkronRkbmdItems($kebutuhan, $validated['form_data'] ?? []);
             }
         });
 
@@ -315,8 +379,11 @@ class IdentifikasiKebutuhanController extends Controller
         $statusSebelum = $kebutuhan->status_review;
         $kebutuhan->update([
             'status_review' => self::STATUS_DISETUJUI,
-            'catatan_reviewer' => $validated['catatan_reviewer'] ?? $kebutuhan->catatan_reviewer,
-            'catatan_reviewer_detail' => $validated['catatan_reviewer_detail'] ?? $kebutuhan->catatan_reviewer_detail,
+            // Paket final (Disetujui) tidak lagi menampilkan catatan review lama —
+            // catatan global & per-field dibersihkan. Jejak audit tetap tersimpan
+            // di tabel riwayat (identifikasi_kebutuhan_riwayat) untuk keperluan audit.
+            'catatan_reviewer' => null,
+            'catatan_reviewer_detail' => null,
         ]);
         $this->catatRiwayat(
             $kebutuhan,
@@ -422,26 +489,29 @@ class IdentifikasiKebutuhanController extends Controller
 
     /**
      * Kirim notifikasi ke semua Verifikator & Admin (saat paket diajukan).
+     * Web notifikasi selalu dibuat; WA dikirim bila user punya nomor (info.no_hp).
      */
     private function notifyReviewers(IdentifikasiKebutuhan $kebutuhan, string $pesan): void
     {
-        $userIds = User::query()
+        $users = User::query()
             ->whereIn('role', ['Verifikator', 'verifikator', 'Admin', 'admin'])
-            ->pluck('id')
-            ->all();
+            ->get(['id', 'info']);
 
-        foreach ($userIds as $userId) {
+        foreach ($users as $user) {
             Notification::create([
-                'user_id' => $userId,
+                'user_id' => $user->id,
                 'tipe' => 'paket_diajukan',
                 'pesan' => $pesan,
                 'identifikasi_kebutuhan_id' => $kebutuhan->id,
             ]);
+
+            $this->kirimWaJikaAdaNomor($user, $pesan, $kebutuhan->id);
         }
     }
 
     /**
      * Kirim notifikasi ke pembuat paket (saat disetujui / dikembalikan).
+     * Web notifikasi selalu dibuat; WA dikirim bila user punya nomor (info.no_hp).
      */
     private function notifyPembuat(IdentifikasiKebutuhan $kebutuhan, string $pesan): void
     {
@@ -449,12 +519,42 @@ class IdentifikasiKebutuhanController extends Controller
             return;
         }
 
+        $pembuat = User::query()->find($kebutuhan->user_id);
+        if (! $pembuat) {
+            return;
+        }
+
         Notification::create([
-            'user_id' => $kebutuhan->user_id,
+            'user_id' => $pembuat->id,
             'tipe' => 'paket_direview',
             'pesan' => $pesan,
             'identifikasi_kebutuhan_id' => $kebutuhan->id,
         ]);
+
+        $this->kirimWaJikaAdaNomor($pembuat, $pesan, $kebutuhan->id);
+    }
+
+    /**
+     * Kirim pesan WA bila user punya nomor WhatsApp (info.no_hp).
+     * Gagal kirim WA TIDAK menggagalkan alur utama (web notifikasi tetap jalan).
+     */
+    private function kirimWaJikaAdaNomor(User $user, string $pesan, ?int $identifikasiKebutuhanId = null): void
+    {
+        $info = is_array($user->info) ? $user->info : [];
+        $nomor = (string) ($info['no_hp'] ?? '');
+        if ($nomor === '') {
+            return;
+        }
+
+        try {
+            WaGatewayService::send($nomor, $pesan, [
+                'user_id' => $user->id,
+                'identifikasi_kebutuhan_id' => $identifikasiKebutuhanId,
+            ]);
+        } catch (\Throwable $e) {
+            // Jangan sampai notifikasi WA memblokir alur utama.
+            \Illuminate\Support\Facades\Log::warning('[WA] Gagal kirim notifikasi: '.$e->getMessage());
+        }
     }
 
     /**

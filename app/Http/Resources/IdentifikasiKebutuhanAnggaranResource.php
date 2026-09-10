@@ -32,6 +32,12 @@ class IdentifikasiKebutuhanAnggaranResource extends JsonResource
                 'nama_sumber_dana' => $this->sipdPenetapan?->nama_sumber_dana,
                 'tahun' => $this->sipdPenetapan?->tahun,
                 'pagu_sipd' => $this->sipdPenetapan?->pagu,
+                // 4 flag akun_indikator_rkbmd — acuan alur pertanyaan RKBMD per kode rekening
+                // (juga dibutuhkan saat mode edit, karena frontend merekonstruksi item pagu dari data ini)
+                'is_belanja_pengadaan' => (bool) ($this->sipdPenetapan?->akun?->indikator?->is_belanja_pengadaan ?? false),
+                'is_rkbmd_pengadaan' => (bool) ($this->sipdPenetapan?->akun?->indikator?->is_rkbmd_pengadaan ?? false),
+                'is_rkbmd_pemeliharaan_rehab' => (bool) ($this->sipdPenetapan?->akun?->indikator?->is_rkbmd_pemeliharaan_rehab ?? false),
+                'is_rkbmd_pemeliharaan_rutin' => (bool) ($this->sipdPenetapan?->akun?->indikator?->is_rkbmd_pemeliharaan_rutin ?? false),
             ]),
             'created_at' => $this->created_at?->toISOString(),
         ];

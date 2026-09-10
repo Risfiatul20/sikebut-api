@@ -43,11 +43,27 @@ class RkbmdPengadaanController extends Controller
 
         $perPage = (int) $request->query('per_page', 15);
 
-        if ($perPage > 0) {
-            return RkbmdPengadaanResource::collection($query->paginate($perPage));
+        $rows = $perPage > 0 ? $query->paginate($perPage) : $query->get();
+
+        // "Diisi" (riwayat pemakaian) — total jumlah yang sudah dipakai usulan lain
+        // dari tabel identifikasi_kebutuhan_rkbmd, dikelompokkan per id_pengadaan.
+        // Mode edit: usulan yang sedang diedit dikecualikan (query exclude_identifikasi).
+        $exclude = $request->query('exclude_identifikasi');
+        $used = DB::table('dev.identifikasi_kebutuhan_rkbmd')
+            ->select('id_pengadaan')
+            ->selectRaw('SUM(jumlah) as total')
+            ->where('jenis_rkbmd', 'pengadaan')
+            ->when($exclude !== null && $exclude !== '', function ($q) use ($exclude) {
+                $q->where('identifikasi_kebutuhan_id', '!=', (int) $exclude);
+            })
+            ->groupBy('id_pengadaan')
+            ->pluck('total', 'id_pengadaan');
+
+        foreach ($rows as $row) {
+            $row->sudah_diisi = (int) ($used[$row->id_pengadaan] ?? 0);
         }
 
-        return RkbmdPengadaanResource::collection($query->get());
+        return RkbmdPengadaanResource::collection($rows);
     }
 
     public function show(int $id): RkbmdPengadaanResource

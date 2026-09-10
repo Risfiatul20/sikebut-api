@@ -51,6 +51,14 @@ class IdentifikasiKebutuhanResource extends JsonResource
             'total_pagu' => $this->whenLoaded('anggaran', fn () => number_format((float) $this->anggaran->sum('pagu'), 2, '.', '')),
             'jumlah_anggaran' => $this->whenLoaded('anggaran', fn () => $this->anggaran->count()),
             'anggaran' => IdentifikasiKebutuhanAnggaranResource::collection($this->whenLoaded('anggaran')),
+            'rkbmd_items' => $this->whenLoaded('rkbmdItems', fn () => $this->rkbmdItems->map(fn ($r) => [
+                'id' => $r->id,
+                'kode_standar' => $r->kode_standar,
+                'kode_rekening' => $r->kode_rekening,
+                'id_pengadaan' => $r->id_pengadaan,
+                'jenis_rkbmd' => $r->jenis_rkbmd,
+                'jumlah' => $r->jumlah,
+            ])),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

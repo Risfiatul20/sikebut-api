@@ -56,6 +56,30 @@ class AuthController extends Controller
     }
 
     /**
+     * Perbarui profil akun sendiri (khusus No. WhatsApp untuk notifikasi WA).
+     */
+    public function updateMe(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'no_hp' => 'nullable|string|max:50',
+        ]);
+
+        $info = is_array($user->info) ? $user->info : [];
+        $info['no_hp'] = $validated['no_hp'] ?? '';
+        $user->update(['info' => $info]);
+
+        $user->loadMissing(['skpd', 'subKegiatan.kegiatan.program.bidangUrusan']);
+
+        return response()->json([
+            'message' => 'Profil diperbarui',
+            'user' => new UserResource($user),
+        ]);
+    }
+
+    /**
      * Log the user out (revoke current token).
      */
     public function logout(Request $request): JsonResponse

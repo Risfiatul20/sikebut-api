@@ -62,6 +62,16 @@ class IdentifikasiKebutuhan extends Model
     }
 
     /**
+     * Detail barang RKBMD terpilih (1 baris per barang per item Pagu Paket).
+     *
+     * @return HasMany<IdentifikasiKebutuhanRkbmd, $this>
+     */
+    public function rkbmdItems(): HasMany
+    {
+        return $this->hasMany(IdentifikasiKebutuhanRkbmd::class, 'identifikasi_kebutuhan_id', 'id');
+    }
+
+    /**
      * @return BelongsTo<User, $this>
      */
     public function pembuat(): BelongsTo

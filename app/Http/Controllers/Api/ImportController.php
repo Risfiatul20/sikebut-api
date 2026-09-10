@@ -15,8 +15,18 @@ class ImportController extends Controller
 {
     public function importRkbmdPengadaan(Request $request)
     {
+        // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
+        @ini_set('memory_limit', '1024M');
+
         $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv|max:20480', // Maksimal 20MB
+            // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
+            // konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
+            'file' => ['required', 'file', 'max:20480', function ($attribute, $value, $fail) {
+                $ext = strtolower($value->getClientOriginalExtension());
+                if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
+                    $fail('Format file harus .xlsx, .xls, atau .csv.');
+                }
+            }],
         ]);
 
         $importId = (string) Str::uuid();
@@ -33,21 +43,50 @@ class ImportController extends Controller
             'updated_at' => now(),
         ]);
 
-        // 2. Jalankan Job Import via Queue dengan membawa $importId
-        Excel::queueImport(new RkbmdPengadaanImport($importId), $filePath);
+        // 2. Jalankan impor SECARA SINKRON (tanpa worker queue) agar pasti selesai.
+        //    Catatan: class import TIDAK mengimplementasikan ShouldQueue, sehingga
+        //    Maatwebsite memproses chunk langsung di request ini (lihat ChunkReader).
+        //    Setelah selesai, event AfterImport pada job otomatis menandai status 'completed'.
+        try {
+            Excel::import(new RkbmdPengadaanImport($importId), $filePath);
+        } catch (\Throwable $e) {
+            DB::table('dev.import_statuses')
+                ->where('id', $importId)
+                ->update([
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage(),
+                    'updated_at' => now(),
+                ]);
 
-        // 3. Kembalikan ID Tracking ke Next.js
+            return response()->json([
+                'success' => false,
+                'message' => 'Impor gagal: '.$e->getMessage(),
+                'import_id' => $importId,
+            ], 422);
+        }
+
+        // 3. Kembalikan ID Tracking ke Next.js (status sudah 'completed')
         return response()->json([
             'success' => true,
-            'message' => 'File pengadaan berhasil diunggah dan sedang diproses.',
+            'message' => 'File pengadaan berhasil diimpor ke database.',
             'import_id' => $importId,
         ], 200);
     }
 
     public function importRkbmdPemeliharaan(Request $request)
     {
+        // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
+        @ini_set('memory_limit', '1024M');
+
         $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv|max:20480', // Limit 20MB
+            // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
+            // konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
+            'file' => ['required', 'file', 'max:20480', function ($attribute, $value, $fail) {
+                $ext = strtolower($value->getClientOriginalExtension());
+                if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
+                    $fail('Format file harus .xlsx, .xls, atau .csv.');
+                }
+            }],
         ]);
 
         $importId = (string) Str::uuid();
@@ -64,21 +103,50 @@ class ImportController extends Controller
             'updated_at' => now(),
         ]);
 
-        // 2. Jalankan Job Import via Queue dengan membawa $importId
-        Excel::queueImport(new RkbmdPemeliharaanImport($importId), $filePath);
+        // 2. Jalankan impor SECARA SINKRON (tanpa worker queue) agar pasti selesai.
+        //    Catatan: class import TIDAK mengimplementasikan ShouldQueue, sehingga
+        //    Maatwebsite memproses chunk langsung di request ini (lihat ChunkReader).
+        //    Setelah selesai, event AfterImport pada job otomatis menandai status 'completed'.
+        try {
+            Excel::import(new RkbmdPemeliharaanImport($importId), $filePath);
+        } catch (\Throwable $e) {
+            DB::table('dev.import_statuses')
+                ->where('id', $importId)
+                ->update([
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage(),
+                    'updated_at' => now(),
+                ]);
 
-        // 3. Kembalikan ID Tracking ke Next.js
+            return response()->json([
+                'success' => false,
+                'message' => 'Impor gagal: '.$e->getMessage(),
+                'import_id' => $importId,
+            ], 422);
+        }
+
+        // 3. Kembalikan ID Tracking ke Next.js (status sudah 'completed')
         return response()->json([
             'success' => true,
-            'message' => 'File pemeliharaan berhasil diunggah dan sedang diproses.',
+            'message' => 'File pemeliharaan berhasil diimpor ke database.',
             'import_id' => $importId,
         ], 200);
     }
 
     public function importSipdPenetapanApbd(Request $request)
     {
+        // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
+        @ini_set('memory_limit', '1024M');
+
         $request->validate([
-            'file' => 'required|mimes:xlsx,xls,csv|max:20480', // Maksimal 20MB
+            // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
+            // konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
+            'file' => ['required', 'file', 'max:20480', function ($attribute, $value, $fail) {
+                $ext = strtolower($value->getClientOriginalExtension());
+                if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
+                    $fail('Format file harus .xlsx, .xls, atau .csv.');
+                }
+            }],
         ]);
 
         $importId = (string) Str::uuid();

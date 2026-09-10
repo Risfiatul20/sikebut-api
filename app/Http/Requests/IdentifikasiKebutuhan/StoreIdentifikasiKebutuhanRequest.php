@@ -14,6 +14,38 @@ class StoreIdentifikasiKebutuhanRequest extends FormRequest
     }
 
     /**
+     * Normalisasi tanggal sebelum validasi: terima juga format "MM/YYYY" / "MM-YYYY"
+     * (dikirim sebagian browser) → konversi ke "YYYY-MM-01" / akhir bulan.
+     */
+    protected function prepareForValidation(): void
+    {
+        $dateKeys = [
+            'waktu_pemanfaatan_awal', 'waktu_pemanfaatan_akhir',
+            'waktu_pemilihan_awal', 'waktu_pemilihan_akhir',
+            'waktu_pelaksanaan_kontrak_awal', 'waktu_pelaksanaan_kontrak_akhir',
+            'waktu_pelaksanaan_pekerjaan_awal', 'waktu_pelaksanaan_pekerjaan_akhir',
+        ];
+        $data = $this->all();
+        foreach ($dateKeys as $key) {
+            $val = $data[$key] ?? null;
+            if (! is_string($val) || trim($val) === '') {
+                continue;
+            }
+            $trimmed = trim($val);
+            if (preg_match('/^(\d{1,2})[-\/](\d{4})$/', $trimmed, $m)) {
+                $month = (int) $m[1];
+                $year = (int) $m[2];
+                if ($month >= 1 && $month <= 12 && $year >= 1900 && $year <= 2100) {
+                    $isAkhir = str_ends_with($key, '_akhir');
+                    $day = $isAkhir ? (int) date('t', mktime(0, 0, 0, $month, 1, $year)) : 1;
+                    $data[$key] = sprintf('%04d-%02d-%02d', $year, $month, $day);
+                }
+            }
+        }
+        $this->merge($data);
+    }
+
+    /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array

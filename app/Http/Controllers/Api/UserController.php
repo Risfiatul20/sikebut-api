@@ -157,7 +157,13 @@ class UserController extends Controller
      */
     public function destroy(User $user): JsonResponse
     {
-        $user->delete();
+        DB::transaction(function () use ($user) {
+            // Bersihkan data turunan yang berpotensi memblokir hapus (defense-in-depth).
+            // dev.identifikasi_kebutuhan & dev.notifications ikut terhapus via FK ON DELETE CASCADE.
+            DB::table('dev.identifikasi_kebutuhan_riwayat')->where('user_id', $user->id)->delete();
+
+            $user->delete();
+        });
 
         return response()->json([
             'message' => 'User deleted successfully',

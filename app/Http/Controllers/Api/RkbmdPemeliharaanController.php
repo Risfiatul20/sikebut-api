@@ -11,6 +11,7 @@ use App\Models\RefSubKegiatan;
 use App\Models\RkbmdPemeliharaan;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class RkbmdPemeliharaanController extends Controller
@@ -43,11 +44,41 @@ class RkbmdPemeliharaanController extends Controller
 
         $perPage = (int) $request->query('per_page', 15);
 
-        if ($perPage > 0) {
-            return RkbmdPemeliharaanResource::collection($query->paginate($perPage));
+        $rows = $perPage > 0 ? $query->paginate($perPage) : $query->get();
+
+        // "Diisi" (riwayat pemakaian) — total jumlah yang sudah dipakai usulan lain
+        // dari tabel identifikasi_kebutuhan_rkbmd, dikelompokkan per id_pemeliharaan.
+        // Mode edit: usulan yang sedang diedit dikecualikan (query exclude_identifikasi).
+        $exclude = $request->query('exclude_identifikasi');
+        $used = DB::table('dev.identifikasi_kebutuhan_rkbmd')
+            ->select('id_pengadaan')
+            ->selectRaw('SUM(jumlah) as total')
+            ->where('jenis_rkbmd', 'pemeliharaan')
+            ->when($exclude !== null && $exclude !== '', function ($q) use ($exclude) {
+                $q->where('identifikasi_kebutuhan_id', '!=', (int) $exclude);
+            })
+            ->groupBy('id_pengadaan')
+            ->pluck('total', 'id_pengadaan');
+
+        // Kondisi Baik/RR/RB dari tabel master rkbmd_kebutuhan (kondisidesember_*)
+        // via join id_kebutuhan — arahan atasan: kondisi tidak bisa diubah user.
+        $kebutuhanIds = $rows->pluck('id_kebutuhan')->filter()->unique()->values();
+        $kondisiKebutuhan = DB::table('dev.rkbmd_kebutuhan')
+            ->whereIn('id_kebutuhan', $kebutuhanIds)
+            ->get(['id_kebutuhan', 'kondisidesember_b', 'kondisidesember_rr', 'kondisidesember_rb'])
+            ->keyBy('id_kebutuhan');
+
+        foreach ($rows as $row) {
+            $row->sudah_diisi = (int) ($used[$row->id_pemeliharaan] ?? 0);
+            $kondisi = $kondisiKebutuhan->get($row->id_kebutuhan);
+            if ($kondisi) {
+                $row->kondisi_b = (int) ($kondisi->kondisidesember_b ?? 0);
+                $row->kondisi_rr = (int) ($kondisi->kondisidesember_rr ?? 0);
+                $row->kondisi_rb = (int) ($kondisi->kondisidesember_rb ?? 0);
+            }
         }
 
-        return RkbmdPemeliharaanResource::collection($query->get());
+        return RkbmdPemeliharaanResource::collection($rows);
     }
 
     public function show(int $id): RkbmdPemeliharaanResource

@@ -408,31 +408,146 @@ class LaporanController extends Controller
             ->orderBy('ik.status_review')
             ->get();
 
-        // Daftar paket lengkap
-        $paket = (clone $base)
+        // ---- Daftar paket LENGKAP sesuai template Laporan.xlsx (sheet Penyedia/Swakelola) ----
+        // Header paket + nama hierarki (program/kegiatan/sub kegiatan) + pembuat.
+        $paketRows = (clone $base)
             ->select([
                 'ik.id',
                 'ik.nama_paket',
                 'ik.jenis_pengadaan',
                 'ik.status_review',
                 'ik.kode_skpd',
-                DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
+                'ik.kode_program',
+                'ik.kode_kegiatan',
                 'ik.kode_sub_kegiatan',
+                'ik.form_data',
+                'ik.waktu_pemanfaatan_awal',
+                'ik.waktu_pemanfaatan_akhir',
+                'ik.waktu_pemilihan_awal',
+                'ik.waktu_pemilihan_akhir',
+                'ik.waktu_pelaksanaan_kontrak_awal',
+                'ik.waktu_pelaksanaan_kontrak_akhir',
+                'ik.waktu_pelaksanaan_pekerjaan_awal',
+                'ik.waktu_pelaksanaan_pekerjaan_akhir',
+                DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
                 'u.nama as nama_user',
                 'ik.created_at',
                 'ik.updated_at',
-                DB::raw('COALESCE(SUM(ika.pagu), 0) as total_pagu'),
             ])
-            ->groupBy('ik.id', 'ik.nama_paket', 'ik.jenis_pengadaan', 'ik.status_review', 'ik.kode_skpd', 'ik.kode_sub_kegiatan', 'u.nama', 'ik.created_at', 'ik.updated_at')
+            ->groupBy(
+                'ik.id', 'ik.nama_paket', 'ik.jenis_pengadaan', 'ik.status_review', 'ik.kode_skpd',
+                'ik.kode_program', 'ik.kode_kegiatan', 'ik.kode_sub_kegiatan', 'ik.form_data',
+                'ik.waktu_pemanfaatan_awal', 'ik.waktu_pemanfaatan_akhir',
+                'ik.waktu_pemilihan_awal', 'ik.waktu_pemilihan_akhir',
+                'ik.waktu_pelaksanaan_kontrak_awal', 'ik.waktu_pelaksanaan_kontrak_akhir',
+                'ik.waktu_pelaksanaan_pekerjaan_awal', 'ik.waktu_pelaksanaan_pekerjaan_akhir',
+                'u.nama', 'ik.created_at', 'ik.updated_at'
+            )
             ->orderByDesc('ik.updated_at')
             ->get();
+
+        // Nama hierarki dari tabel referensi SIPD.
+        $progNama = DB::table('dev.ref_program')->pluck('nama_program', 'kode_program');
+        $kegNama = DB::table('dev.ref_kegiatan')->pluck('nama_kegiatan', 'kode_kegiatan');
+        $subNama = DB::table('dev.ref_sub_kegiatan')->pluck('nama_sub_kegiatan', 'kode_sub_kegiatan');
+
+        // Rincian anggaran (MAK + pagu) per paket — satu query untuk semua paket.
+        $ids = $paketRows->pluck('id')->all();
+        $anggaranRows = $ids
+            ? DB::table('dev.identifikasi_kebutuhan_anggaran as a')
+                ->leftJoin('dev.sipd_penetapan_apbd as sp', 'sp.id', '=', 'a.id_sipd_penetapan')
+                ->whereIn('a.identifikasi_kebutuhan_id', $ids)
+                ->select([
+                    'a.identifikasi_kebutuhan_id',
+                    'a.kode_standar_harga',
+                    'a.pagu',
+                    DB::raw('COALESCE(sp.kode_rekening, a.kode_standar_harga) as kode_rekening'),
+                    DB::raw('COALESCE(a.kode_standar_harga, \'\') as kode_standar_harga_out'),
+                ])
+                ->orderBy('a.identifikasi_kebutuhan_id')
+                ->get()
+                ->groupBy('identifikasi_kebutuhan_id')
+            : collect();
+
+        $rincian = [];
+        foreach ($paketRows as $p) {
+            $fd = is_string($p->form_data) ? json_decode($p->form_data, true) : (array) ($p->form_data ?? []);
+            $fd = is_array($fd) ? $fd : [];
+
+            $lokasi = [];
+            foreach ((array) ($fd['lokasi'] ?? []) as $l) {
+                $l = (array) $l;
+                $bagian = array_filter([
+                    (string) ($l['provinsi'] ?? ''),
+                    (string) ($l['kabupaten'] ?? ''),
+                    (string) ($l['kecamatan'] ?? ''),
+                    (string) ($l['detail'] ?? ''),
+                ]);
+                if ($bagian) {
+                    $lokasi[] = implode(', ', $bagian);
+                }
+            }
+
+            $mak = $anggaranRows->get($p->id) ?? collect();
+            $totalPagu = round((float) $mak->sum('pagu'), 2);
+
+            $rincian[] = [
+                'id' => (int) $p->id,
+                'nama_paket' => (string) $p->nama_paket,
+                'jenis_pengadaan' => $p->jenis_pengadaan,
+                'status_review' => $p->status_review,
+                'kode_skpd' => (string) $p->kode_skpd,
+                'nama_skpd' => (string) ($p->nama_skpd ?? $p->kode_skpd),
+                'kode_program' => (string) ($p->kode_program ?? ''),
+                'nama_program' => (string) ($progNama[$p->kode_program] ?? ''),
+                'kode_kegiatan' => (string) ($p->kode_kegiatan ?? ''),
+                'nama_kegiatan' => (string) ($kegNama[$p->kode_kegiatan] ?? ''),
+                'kode_sub_kegiatan' => (string) ($p->kode_sub_kegiatan ?? ''),
+                'nama_sub_kegiatan' => (string) ($subNama[$p->kode_sub_kegiatan] ?? ''),
+                'nama_user' => (string) ($p->nama_user ?? ''),
+                // Detail isian form (template Laporan.xlsx)
+                'lokasi' => $lokasi,
+                'volume' => (float) ($fd['volume'] ?? 0),
+                'volume_satuan' => (string) ($fd['volume_satuan'] ?? 'Unit'),
+                'uraian' => (string) ($fd['uraian'] ?? ($fd['uraian_pekerjaan'] ?? '')),
+                'spesifikasi' => (string) ($fd['spesifikasi'] ?? ($fd['spesifikasi_pekerjaan'] ?? '')),
+                'pdn' => (string) ($fd['pdn'] ?? ''),
+                'usaha_kecil' => (string) ($fd['usaha_kecil'] ?? ''),
+                'spp_ekonomi' => (string) ($fd['spp_ekonomi'] ?? ''),
+                'spp_sosial' => (string) ($fd['spp_sosial'] ?? ''),
+                'spp_lingkungan' => (string) ($fd['spp_lingkungan'] ?? ''),
+                'pra_dpa' => (string) ($fd['pra_dpa'] ?? ''),
+                'metode_pengadaan' => (string) ($fd['metode_pengadaan'] ?? ''),
+                'tersedia_ekatalog' => (string) ($fd['tersedia_ekatalog'] ?? ($fd['tersedia_ekatalog_produk'] ?? '')),
+                'sumber_dana' => (string) ($fd['sumber_dana'] ?? ''),
+                'tipe_swakelola' => (string) ($fd['tipe_swakelola'] ?? ''),
+                // Jadwal (awal & akhir per fase)
+                'waktu_pemanfaatan_awal' => $p->waktu_pemanfaatan_awal,
+                'waktu_pemanfaatan_akhir' => $p->waktu_pemanfaatan_akhir,
+                'waktu_pemilihan_awal' => $p->waktu_pemilihan_awal,
+                'waktu_pemilihan_akhir' => $p->waktu_pemilihan_akhir,
+                'waktu_pelaksanaan_awal' => $p->waktu_pelaksanaan_kontrak_awal ?: $p->waktu_pelaksanaan_pekerjaan_awal,
+                'waktu_pelaksanaan_akhir' => $p->waktu_pelaksanaan_kontrak_akhir ?: $p->waktu_pelaksanaan_pekerjaan_akhir,
+                // Anggaran
+                'mak' => $mak->map(fn ($m) => [
+                    'kode_rekening' => (string) ($m->kode_rekening ?? ''),
+                    'nama' => (string) ($m->kode_standar_harga_out ?? ''),
+                    'pagu' => round((float) $m->pagu, 2),
+                ])->values()->all(),
+                'total_pagu' => $totalPagu,
+                'updated_at' => $p->updated_at,
+            ];
+        }
+
+        // Ringkasan lama (kompatibilitas): dari data rincian.
+        $paket = collect($rincian);
 
         return response()->json([
             'status' => 'success',
             'data' => [
                 'cara_pengadaan' => $isPenyedia ? 'Penyedia' : 'Swakelola',
                 'summary' => [
-                    'total_paket' => (int) $paket->count(),
+                    'total_paket' => $paket->count(),
                     'total_pagu' => round((float) $paket->sum('total_pagu'), 2),
                     'total_skpd' => $perSkpd->count(),
                 ],
@@ -440,8 +555,27 @@ class LaporanController extends Controller
                 'per_jenis' => $perJenis,
                 'per_status' => $perStatus,
                 'paket' => $paket,
+                'rincian' => $rincian,
             ],
         ]);
+    }
+
+    /**
+     * Ekspor laporan paket per cara pengadaan (Penyedia / Swakelola) ke Excel
+     * mengikuti template Laporan.xlsx.
+     *
+     * GET /api/v1/laporan/penyedia/export | /api/v1/laporan/swakelola/export
+     */
+    public function paketPerCaraExport(Request $request, string $cara): BinaryFileResponse
+    {
+        $json = $this->paketPerCara($request, $cara)->getData(true);
+        $data = $json['data'] ?? [];
+        $caraNormalized = strtolower(trim($cara));
+
+        return Excel::download(
+            new \App\Exports\LaporanPaketExport($data, $caraNormalized),
+            'laporan-'.($caraNormalized === 'penyedia' ? 'penyedia' : 'swakelola').'-identifikasi-'.date('Y-m-d').'.xlsx'
+        );
     }
 
     /**
@@ -485,26 +619,118 @@ class LaporanController extends Controller
                 'ik.status_review',
                 'ik.kode_skpd',
                 DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
+                'ik.kode_program',
+                'ik.kode_kegiatan',
                 'ik.kode_sub_kegiatan',
+                'ik.catatan_reviewer',
                 'u.nama as nama_user',
                 'ik.updated_at',
                 DB::raw('COALESCE(SUM(ika.pagu), 0) as total_pagu'),
             ])
-            ->groupBy('ik.id', 'ik.nama_paket', 'ik.jenis_pengadaan', 'ik.status_review', 'ik.kode_skpd', 'ik.kode_sub_kegiatan', 'u.nama', 'ik.updated_at')
+            ->groupBy('ik.id', 'ik.nama_paket', 'ik.jenis_pengadaan', 'ik.status_review', 'ik.kode_skpd', 'ik.kode_program', 'ik.kode_kegiatan', 'ik.kode_sub_kegiatan', 'ik.catatan_reviewer', 'u.nama', 'ik.updated_at')
             ->orderByDesc('ik.updated_at')
             ->get();
+
+        // Nama hierarki + pagu SIPD per sub kegiatan (kolom Pagu / Non Pengadaan / Pengadaan).
+        $progNama = DB::table('dev.ref_program')->pluck('nama_program', 'kode_program');
+        $kegNama = DB::table('dev.ref_kegiatan')->pluck('nama_kegiatan', 'kode_kegiatan');
+        $subNama = DB::table('dev.ref_sub_kegiatan')->pluck('nama_sub_kegiatan', 'kode_sub_kegiatan');
+
+        $subKegiatanCodes = $paket->pluck('kode_sub_kegiatan')->filter()->unique()->values()->all();
+        $sipdPerSub = $subKegiatanCodes
+            ? DB::table('dev.ref_sipd_view')
+                ->whereIn('kode_sub_kegiatan', $subKegiatanCodes)
+                ->select([
+                    'kode_sub_kegiatan',
+                    DB::raw('SUM(pagu) as pagu'),
+                    DB::raw('SUM(CASE WHEN is_belanja_pengadaan = true THEN pagu ELSE 0 END) as pengadaan'),
+                ])
+                ->groupBy('kode_sub_kegiatan')
+                ->pluck('pagu', 'kode_sub_kegiatan')
+            : collect();
+        $sipdPengadaanPerSub = $subKegiatanCodes
+            ? DB::table('dev.ref_sipd_view')
+                ->whereIn('kode_sub_kegiatan', $subKegiatanCodes)
+                ->select([
+                    'kode_sub_kegiatan',
+                    DB::raw('SUM(CASE WHEN is_belanja_pengadaan = true THEN pagu ELSE 0 END) as pengadaan'),
+                ])
+                ->groupBy('kode_sub_kegiatan')
+                ->pluck('pengadaan', 'kode_sub_kegiatan')
+            : collect();
+
+        // Catatan pembahasan (Rekomendasi A): catatan_reviewer terakhir; fallback catatan
+        // terakhir dari riwayat review (tetap tersedia walau paket sudah disetujui).
+        $catatanRiwayat = $paket->isNotEmpty()
+            ? DB::table('dev.identifikasi_kebutuhan_riwayat as r')
+                ->whereIn('r.identifikasi_kebutuhan_id', $paket->pluck('id')->all())
+                ->whereNotNull('r.catatan')
+                ->where('r.catatan', '!=', '')
+                ->select('r.identifikasi_kebutuhan_id', 'r.catatan')
+                ->orderBy('r.id', 'desc')
+                ->get()
+                ->groupBy('identifikasi_kebutuhan_id')
+                ->map(fn ($g) => (string) $g->first()->catatan)
+            : collect();
+
+        $rows = $paket->map(function ($p) use ($progNama, $kegNama, $subNama, $sipdPerSub, $sipdPengadaanPerSub, $catatanRiwayat) {
+            $paguSipd = (float) ($sipdPerSub[$p->kode_sub_kegiatan] ?? 0);
+            $pengadaanSipd = (float) ($sipdPengadaanPerSub[$p->kode_sub_kegiatan] ?? 0);
+            $catatan = trim((string) ($p->catatan_reviewer ?? ''));
+            if ($catatan === '') {
+                $catatan = (string) ($catatanRiwayat[$p->id] ?? '');
+            }
+
+            return [
+                'id' => (int) $p->id,
+                'nama_paket' => (string) $p->nama_paket,
+                'jenis_pengadaan' => $p->jenis_pengadaan,
+                'status_review' => $p->status_review,
+                'kode_skpd' => (string) $p->kode_skpd,
+                'nama_skpd' => (string) ($p->nama_skpd ?? $p->kode_skpd),
+                'kode_program' => (string) ($p->kode_program ?? ''),
+                'nama_program' => (string) ($progNama[$p->kode_program] ?? ''),
+                'kode_kegiatan' => (string) ($p->kode_kegiatan ?? ''),
+                'nama_kegiatan' => (string) ($kegNama[$p->kode_kegiatan] ?? ''),
+                'kode_sub_kegiatan' => (string) ($p->kode_sub_kegiatan ?? ''),
+                'nama_sub_kegiatan' => (string) ($subNama[$p->kode_sub_kegiatan] ?? ''),
+                'nama_user' => (string) ($p->nama_user ?? ''),
+                'pagu' => round((float) $p->total_pagu, 2),
+                'belanja_pengadaan' => round($pengadaanSipd, 2),
+                'belanja_non_pengadaan' => round($paguSipd - $pengadaanSipd, 2),
+                'catatan_pembahasan' => $catatan,
+                'updated_at' => $p->updated_at,
+            ];
+        })->values();
 
         return response()->json([
             'status' => 'success',
             'data' => [
                 'cara_pengadaan' => $isPenyedia ? 'Penyedia' : 'Swakelola',
                 'summary' => [
-                    'total_paket' => $paket->count(),
-                    'total_pagu' => round((float) $paket->sum('total_pagu'), 2),
+                    'total_paket' => $rows->count(),
+                    'total_pagu' => round((float) $rows->sum('pagu'), 2),
                 ],
-                'paket' => $paket,
+                'paket' => $rows,
             ],
         ]);
+    }
+
+    /**
+     * Ekspor Berita Acara Pembahasan (Penyedia / Swakelola) ke Excel.
+     *
+     * GET /api/v1/laporan/ba-pembahasan-penyedia/export | /api/v1/laporan/ba-pembahasan-swakelola/export
+     */
+    public function baPembahasanExport(Request $request, string $cara): BinaryFileResponse
+    {
+        $json = $this->baPembahasan($request, $cara)->getData(true);
+        $data = $json['data'] ?? [];
+        $caraNormalized = strtolower(trim($cara));
+
+        return Excel::download(
+            new \App\Exports\BaPembahasanExport($data),
+            'ba-pembahasan-'.$caraNormalized.'-'.date('Y-m-d').'.xlsx'
+        );
     }
 
     /**
@@ -522,60 +748,143 @@ class LaporanController extends Controller
         }
 
         $kodeSkpd = $this->scopeKodeSkpd($request);
+        $user = $request->user();
+        $ppkCodes = $user?->ppkSubKegiatanCodes();
 
-        // Nama kolom berbeda antara tabel rkbmd_pengadaan dan rkbmd_pemeliharaan.
-        $pk = $tipeNormalized === 'pengadaan' ? 'id_pengadaan' : 'id_pemeliharaan';
-        $subKegiatanCol = $tipeNormalized === 'pengadaan' ? 'kode_sub_giat' : 'kode_sub_kegiatan';
+        // Mode jawaban RKBMD per item pagu: pengadaan -> 'rencana', pemeliharaan -> 'aset'.
+        $mode = $tipeNormalized === 'pengadaan' ? 'rencana' : 'aset';
 
-        $table = 'dev.rkbmd_'.$tipeNormalized;
-        $q = DB::table($table.' as r')
-            ->leftJoin('dev.ref_skpd as rs', 'rs.kode_skpd', '=', 'r.kode_skpd');
+        $q = DB::table('dev.identifikasi_kebutuhan as ik')
+            ->leftJoin('dev.ref_skpd as rs', 'rs.kode_skpd', '=', 'ik.kode_skpd')
+            ->leftJoin('dev.users as u', 'u.id', '=', 'ik.user_id')
+            ->whereIn('ik.status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan'])
+            // Paket yang punya jawaban RKBMD sesuai tipe pada rkbmd_per_anggaran.
+            ->whereRaw(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements(ik.form_data->'rkbmd_per_anggaran') p WHERE p->>'mode' = ?)",
+                [$mode]
+            );
 
         if ($kodeSkpd) {
-            $q->where('r.kode_skpd', $kodeSkpd);
+            $q->where('ik.kode_skpd', $kodeSkpd);
+        }
+        if ($ppkCodes !== null) {
+            $q->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
         }
 
-        // Ringkasan per SKPD
-        $perSkpd = (clone $q)
-            ->select([
-                'r.kode_skpd',
-                DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
-                DB::raw('COUNT(*) as jumlah_barang'),
-                DB::raw('COALESCE(SUM(r.jumlah_barang), 0) as total_unit'),
-            ])
-            ->groupBy('r.kode_skpd')
-            ->orderByDesc('jumlah_barang')
-            ->limit(30)
+        $paket = $q->select([
+            'ik.id',
+            'ik.nama_paket',
+            'ik.jenis_pengadaan',
+            'ik.status_review',
+            'ik.kode_skpd',
+            DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
+            'ik.kode_program',
+            'ik.kode_kegiatan',
+            'ik.kode_sub_kegiatan',
+            'ik.catatan_reviewer',
+            'ik.form_data',
+            'u.nama as nama_user',
+            'ik.updated_at',
+        ])
+            ->groupBy('ik.id', 'ik.nama_paket', 'ik.jenis_pengadaan', 'ik.status_review', 'ik.kode_skpd', 'ik.kode_program', 'ik.kode_kegiatan', 'ik.kode_sub_kegiatan', 'ik.catatan_reviewer', 'ik.form_data', 'u.nama', 'ik.updated_at')
+            ->orderByDesc('ik.updated_at')
             ->get();
 
-        // Daftar barang (200 baris terbaru untuk lampiran)
-        $items = (clone $q)
-            ->select([
-                'r.'.$pk.' as id',
-                'r.kode_skpd',
-                DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
-                'r.nama_barang',
-                'r.jumlah_barang',
-                'r.satuan',
-                'r.'.$subKegiatanCol.' as kode_sub_kegiatan',
-            ])
-            ->groupBy('r.'.$pk, 'r.kode_skpd', 'r.nama_barang', 'r.jumlah_barang', 'r.satuan', 'r.'.$subKegiatanCol)
-            ->orderByDesc('r.'.$pk)
-            ->limit(200)
-            ->get();
+        $progNama = DB::table('dev.ref_program')->pluck('nama_program', 'kode_program');
+        $kegNama = DB::table('dev.ref_kegiatan')->pluck('nama_kegiatan', 'kode_kegiatan');
+        $subNama = DB::table('dev.ref_sub_kegiatan')->pluck('nama_sub_kegiatan', 'kode_sub_kegiatan');
+
+        $catatanRiwayat = $paket->isNotEmpty()
+            ? DB::table('dev.identifikasi_kebutuhan_riwayat as r')
+                ->whereIn('r.identifikasi_kebutuhan_id', $paket->pluck('id')->all())
+                ->whereNotNull('r.catatan')
+                ->where('r.catatan', '!=', '')
+                ->select('r.identifikasi_kebutuhan_id', 'r.catatan')
+                ->orderBy('r.id', 'desc')
+                ->get()
+                ->groupBy('identifikasi_kebutuhan_id')
+                ->map(fn ($g) => (string) $g->first()->catatan)
+            : collect();
+
+        $rows = $paket->map(function ($p) use ($mode, $progNama, $kegNama, $subNama, $catatanRiwayat) {
+            $fd = is_string($p->form_data) ? json_decode($p->form_data, true) : (array) ($p->form_data ?? []);
+            $fd = is_array($fd) ? $fd : [];
+
+            // Item barang jawaban sesuai tipe + total unit.
+            $items = [];
+            $totalUnit = 0;
+            foreach ((array) ($fd['rkbmd_per_anggaran'] ?? []) as $per) {
+                $per = (array) $per;
+                if (($per['mode'] ?? '') !== $mode) {
+                    continue;
+                }
+                foreach ((array) ($per['items'] ?? []) as $it) {
+                    $it = (array) $it;
+                    $items[] = [
+                        'nama_barang' => (string) ($it['nama_barang'] ?? ''),
+                        'jumlah' => (float) ($it['jumlah'] ?? 0),
+                        'satuan' => (string) ($it['satuan'] ?? ''),
+                    ];
+                    $totalUnit += (float) ($it['jumlah'] ?? 0);
+                }
+            }
+
+            $catatan = trim((string) ($p->catatan_reviewer ?? ''));
+            if ($catatan === '') {
+                $catatan = (string) ($catatanRiwayat[$p->id] ?? '');
+            }
+
+            return [
+                'id' => (int) $p->id,
+                'nama_paket' => (string) $p->nama_paket,
+                'jenis_pengadaan' => $p->jenis_pengadaan,
+                'status_review' => $p->status_review,
+                'kode_skpd' => (string) $p->kode_skpd,
+                'nama_skpd' => (string) ($p->nama_skpd ?? $p->kode_skpd),
+                'kode_program' => (string) ($p->kode_program ?? ''),
+                'nama_program' => (string) ($progNama[$p->kode_program] ?? ''),
+                'kode_kegiatan' => (string) ($p->kode_kegiatan ?? ''),
+                'nama_kegiatan' => (string) ($kegNama[$p->kode_kegiatan] ?? ''),
+                'kode_sub_kegiatan' => (string) ($p->kode_sub_kegiatan ?? ''),
+                'nama_sub_kegiatan' => (string) ($subNama[$p->kode_sub_kegiatan] ?? ''),
+                'nama_user' => (string) ($p->nama_user ?? ''),
+                'jumlah_item' => count($items),
+                'total_unit' => round($totalUnit, 2),
+                'items' => $items,
+                'catatan_pembahasan' => $catatan,
+                'updated_at' => $p->updated_at,
+            ];
+        })->values();
 
         return response()->json([
             'status' => 'success',
             'data' => [
                 'tipe' => $tipeNormalized,
                 'summary' => [
-                    'total_skpd' => $perSkpd->count(),
-                    'total_barang' => $items->count(),
+                    'total_paket' => $rows->count(),
+                    'total_barang' => $rows->sum('jumlah_item'),
+                    'total_unit' => round((float) $rows->sum('total_unit'), 2),
                 ],
-                'per_skpd' => $perSkpd,
-                'items' => $items,
+                'paket' => $rows,
             ],
         ]);
+    }
+
+    /**
+     * Ekspor Berita Acara Catatan RKBMD (pengadaan / pemeliharaan) ke Excel.
+     *
+     * GET /api/v1/laporan/ba-rkbmd-pengadaan/export | /api/v1/laporan/ba-rkbmd-pemeliharaan/export
+     */
+    public function baRkbmdExport(Request $request, string $tipe): BinaryFileResponse
+    {
+        $json = $this->baRkbmd($request, $tipe)->getData(true);
+        $data = $json['data'] ?? [];
+        $tipeNormalized = strtolower(trim($tipe));
+
+        return Excel::download(
+            new \App\Exports\BaRkbmdExport($data),
+            'ba-catatan-rkbmd-'.$tipeNormalized.'-'.date('Y-m-d').'.xlsx'
+        );
     }
 
     /**

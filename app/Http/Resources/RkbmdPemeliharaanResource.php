@@ -23,6 +23,7 @@ class RkbmdPemeliharaanResource extends JsonResource
             'jumlah_barang' => $this->jumlah_barang,
             'status_barang' => $this->status_barang,
             'satuan' => $this->satuan,
+            'sudah_diisi' => $this->sudah_diisi ?? 0,
             'kondisi_b' => $this->kondisi_b,
             'kondisi_rr' => $this->kondisi_rr,
             'kondisi_rb' => $this->kondisi_rb,

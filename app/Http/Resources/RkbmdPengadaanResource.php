@@ -23,6 +23,7 @@ class RkbmdPengadaanResource extends JsonResource
             'jumlah_barang' => $this->jumlah_barang,
             'satuan' => $this->satuan,
             'jumlah_maksimum' => $this->jumlah_maksimum,
+            'sudah_diisi' => $this->sudah_diisi ?? 0,
             'keterangan' => $this->keterangan,
             'id_status' => $this->id_status,
             'periode' => $this->periode,

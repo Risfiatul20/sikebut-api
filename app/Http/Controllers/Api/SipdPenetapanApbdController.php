@@ -249,6 +249,7 @@ class SipdPenetapanApbdController extends Controller
             ->where('spa.kode_sub_unit', $context->kode_sub_unit)
             ->where('spa.kode_sub_kegiatan', $context->kode_sub_kegiatan)
             ->where('spa.tahun', $tahunAktif)
+            ->where('spa.pagu', '>', 0) // Pagu kosong tidak ditampilkan (arahan: pagu kosong jangan diambil)
             ->select([
                 'spa.id as id_sipd_penetapan',
                 'spa.kode_rekening',

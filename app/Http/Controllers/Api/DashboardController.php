@@ -117,4 +117,78 @@ class DashboardController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Keterisian per akun PPK (arahan atasan #2):
+     * per PPK tampilkan jumlah sub kegiatan ter-mapping, total pagu APBD dari sub kegiatan tsb,
+     * pagu paket yang sudah dibuat, jumlah paket, dan persentase keterisian.
+     *
+     * - PPK: hanya baris miliknya sendiri.
+     * - Admin / Verifikator / Kepala: seluruh akun PPK.
+     */
+    public function keterisianPpk(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $tahun = (int) $request->query('tahun', 0);
+        if ($tahun <= 0) {
+            $tahun = (int) DB::table('dev.sipd_penetapan_apbd')->max('tahun');
+        }
+
+        // 1) Sub kegiatan ter-mapping + total pagu APBD per PPK (tidak digabung dengan paket
+        //    agar tidak ada inflasi cross-join).
+        $paguRows = DB::table('dev.users as u')
+            ->leftJoin('dev.user_sub_kegiatan as usk', 'usk.user_id', '=', 'u.id')
+            ->leftJoin('dev.sipd_penetapan_apbd as spa', function ($j) use ($tahun) {
+                $j->on('spa.kode_sub_kegiatan', '=', 'usk.kode_sub_kegiatan')
+                    ->where('spa.tahun', $tahun);
+            })
+            ->whereRaw('LOWER(u.role) = ?', ['ppk'])
+            ->when($user && strtoupper((string) $user->role) === 'PPK', fn ($q) => $q->where('u.id', $user->id))
+            ->select(
+                'u.id as user_id',
+                'u.username',
+                'u.nama',
+                DB::raw('COUNT(DISTINCT usk.kode_sub_kegiatan) as total_sub_kegiatan'),
+                DB::raw('COALESCE(SUM(spa.pagu), 0) as total_pagu_apbd')
+            )
+            ->groupBy('u.id', 'u.username', 'u.nama')
+            ->orderBy('u.nama')
+            ->get()
+            ->keyBy('user_id');
+
+        // 2) Paket dibuat per PPK + pagu paket.
+        $paketRows = DB::table('dev.users as u')
+            ->leftJoin('dev.identifikasi_kebutuhan as ik', 'ik.user_id', '=', 'u.id')
+            ->leftJoin('dev.identifikasi_kebutuhan_anggaran as ika', 'ika.identifikasi_kebutuhan_id', '=', 'ik.id')
+            ->whereRaw('LOWER(u.role) = ?', ['ppk'])
+            ->when($user && strtoupper((string) $user->role) === 'PPK', fn ($q) => $q->where('u.id', $user->id))
+            ->select(
+                'u.id as user_id',
+                DB::raw('COUNT(DISTINCT ik.id) as jumlah_paket'),
+                DB::raw('COALESCE(SUM(ika.pagu), 0) as total_pagu_paket')
+            )
+            ->groupBy('u.id')
+            ->get()
+            ->keyBy('user_id');
+
+        $rows = $paguRows->map(function ($r) use ($paketRows, $tahun) {
+            $p = $paketRows->get($r->user_id);
+            $totalPagu = (float) $r->total_pagu_apbd;
+            $paguPaket = (float) ($p->total_pagu_paket ?? 0);
+
+            return [
+                'user_id' => (int) $r->user_id,
+                'username' => $r->username,
+                'nama' => $r->nama,
+                'total_sub_kegiatan' => (int) $r->total_sub_kegiatan,
+                'total_pagu_apbd' => $totalPagu,
+                'jumlah_paket' => (int) ($p->jumlah_paket ?? 0),
+                'total_pagu_paket' => $paguPaket,
+                'keterisian_persen' => $totalPagu > 0 ? round(($paguPaket / $totalPagu) * 100, 2) : 0,
+                'tahun' => $tahun,
+            ];
+        })->values();
+
+        return response()->json(['data' => $rows]);
+    }
 }
