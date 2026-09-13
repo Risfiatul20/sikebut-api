@@ -14,7 +14,7 @@ services:
         volumes:
             - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
             # - ./docker/nginx/ssl:/etc/letsencrypt:ro
-            - public:/var/www:ro
+            - public:/var/www/public:ro
             - storage:/var/www/storage:ro
         depends_on:
             sikebut-api:
@@ -33,7 +33,7 @@ services:
         expose: ["9000"]
         env_file: .env
         volumes:
-            - public:/var/www
+            - public:/var/www/public
             - storage:/var/www/storage
         networks:
             - db-network
