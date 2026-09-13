@@ -75,6 +75,7 @@ class StoreIdentifikasiKebutuhanRequest extends FormRequest
             'anggaran.*.id_sipd_penetapan' => ['required', 'integer', Rule::exists('pgsql.dev.sipd_penetapan_apbd', 'id')],
             'anggaran.*.kode_standar_harga' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_standar_harga', 'kode_standar_harga')],
             'anggaran.*.pagu' => ['required', 'numeric', 'min:0'],
-            'anggaran.*.perubahan_standar' => ['nullable', 'array'],        ];
+            'anggaran.*.perubahan_standar' => ['nullable', 'array'],
+        ];
     }
 }
