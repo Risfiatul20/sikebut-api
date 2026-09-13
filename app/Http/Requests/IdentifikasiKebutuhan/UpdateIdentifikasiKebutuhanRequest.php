@@ -59,6 +59,7 @@ class UpdateIdentifikasiKebutuhanRequest extends FormRequest
             'kode_program' => ['sometimes', 'nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_program', 'kode_program')],
             'kode_kegiatan' => ['sometimes', 'nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_kegiatan', 'kode_kegiatan')],
             'kode_sub_kegiatan' => ['sometimes', 'nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_sub_kegiatan', 'kode_sub_kegiatan')],
+            'tahun' => ['sometimes', 'required', 'integer', 'digits:4'],
             'status_review' => ['sometimes', 'nullable', 'string', 'max:50'],
             'waktu_pemanfaatan_awal' => ['sometimes', 'nullable', 'date'],
             'waktu_pemanfaatan_akhir' => ['sometimes', 'nullable', 'date', 'after_or_equal:waktu_pemanfaatan_awal'],

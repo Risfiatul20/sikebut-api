@@ -59,6 +59,7 @@ class StoreIdentifikasiKebutuhanRequest extends FormRequest
             'kode_program' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_program', 'kode_program')],
             'kode_kegiatan' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_kegiatan', 'kode_kegiatan')],
             'kode_sub_kegiatan' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_sub_kegiatan', 'kode_sub_kegiatan')],
+            'tahun' => ['required', 'integer', 'digits:4'],
             'status_review' => ['nullable', 'string', 'max:50'],
             'waktu_pemanfaatan_awal' => ['nullable', 'date'],
             'waktu_pemanfaatan_akhir' => ['nullable', 'date', 'after_or_equal:waktu_pemanfaatan_awal'],
