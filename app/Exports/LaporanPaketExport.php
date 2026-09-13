@@ -17,9 +17,7 @@ class LaporanPaketExport implements FromArray, WithHeadings, WithStyles
      * @param  array<string, mixed>  $data  hasil dari LaporanController::paketPerCara()
      * @param  string  $cara  'penyedia' | 'swakelola'
      */
-    public function __construct(private array $data, private string $cara)
-    {
-    }
+    public function __construct(private array $data, private string $cara) {}
 
     private function fmtTanggal($v): string
     {
@@ -42,6 +40,7 @@ class LaporanPaketExport implements FromArray, WithHeadings, WithStyles
             $r['nama_sub_kegiatan'] ?? '',
             $r['nama_paket'] ?? '',
         ]);
+
         return implode(' / ', $bagian);
     }
 
@@ -53,12 +52,14 @@ class LaporanPaketExport implements FromArray, WithHeadings, WithStyles
     private function mak(array $r): string
     {
         $list = array_map(fn ($m) => (string) ($m['kode_rekening'] ?? ''), (array) ($r['mak'] ?? []));
+
         return implode(', ', array_filter($list));
     }
 
     private function paguMak(array $r): string
     {
         $list = array_map(fn ($m) => number_format((float) ($m['pagu'] ?? 0), 0, ',', '.'), (array) ($r['mak'] ?? []));
+
         return implode(', ', $list);
     }
 
@@ -69,6 +70,7 @@ class LaporanPaketExport implements FromArray, WithHeadings, WithStyles
     private function angka(mixed $v): float|string
     {
         $f = (float) $v;
+
         return $f == 0 ? '0' : $f;
     }
 

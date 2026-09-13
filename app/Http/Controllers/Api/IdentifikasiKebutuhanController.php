@@ -17,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class IdentifikasiKebutuhanController extends Controller
@@ -196,7 +197,7 @@ class IdentifikasiKebutuhanController extends Controller
             if (($validated['status_review'] ?? 'Draft') === self::STATUS_DIAJUKAN) {
                 $this->notifyReviewers(
                     $kebutuhan,
-                    'Paket "' . $kebutuhan->nama_paket . '" diajukan untuk review dan menunggu verifikasi.'
+                    'Paket "'.$kebutuhan->nama_paket.'" diajukan untuk review dan menunggu verifikasi.'
                 );
             }
 
@@ -301,8 +302,11 @@ class IdentifikasiKebutuhanController extends Controller
      * Status values (sistem of record).
      */
     private const STATUS_DRAFT = 'Draft';
+
     private const STATUS_DIAJUKAN = 'Diajukan';
+
     private const STATUS_DISETUJUI = 'Disetujui';
+
     private const STATUS_PERLU_PERBAIKAN = 'Perlu Perbaikan';
 
     /**
@@ -343,7 +347,7 @@ class IdentifikasiKebutuhanController extends Controller
         $statusSebelum = $kebutuhan->status_review;
         $kebutuhan->update(['status_review' => self::STATUS_DIAJUKAN]);
         $this->catatRiwayat($kebutuhan, $statusSebelum, self::STATUS_DIAJUKAN, null, $request->user()->id);
-        $this->notifyReviewers($kebutuhan, 'Paket "' . $kebutuhan->nama_paket . '" diajukan untuk review dan menunggu verifikasi.');
+        $this->notifyReviewers($kebutuhan, 'Paket "'.$kebutuhan->nama_paket.'" diajukan untuk review dan menunggu verifikasi.');
         $kebutuhan->load(self::RELATIONS);
 
         return response()->json([
@@ -392,7 +396,7 @@ class IdentifikasiKebutuhanController extends Controller
             $validated['catatan_reviewer'] ?? null,
             $request->user()->id
         );
-        $this->notifyPembuat($kebutuhan, 'Paket "' . $kebutuhan->nama_paket . '" telah DISETUJUI.');
+        $this->notifyPembuat($kebutuhan, 'Paket "'.$kebutuhan->nama_paket.'" telah DISETUJUI.');
 
         $kebutuhan->load(self::RELATIONS);
 
@@ -439,7 +443,7 @@ class IdentifikasiKebutuhanController extends Controller
             $validated['catatan_reviewer'],
             $request->user()->id
         );
-        $this->notifyPembuat($kebutuhan, 'Paket "' . $kebutuhan->nama_paket . '" DIKEMBALIKAN untuk perbaikan: ' . ($validated['catatan_reviewer'] ?? ''));
+        $this->notifyPembuat($kebutuhan, 'Paket "'.$kebutuhan->nama_paket.'" DIKEMBALIKAN untuk perbaikan: '.($validated['catatan_reviewer'] ?? ''));
 
         $kebutuhan->load(self::RELATIONS);
 
@@ -553,7 +557,7 @@ class IdentifikasiKebutuhanController extends Controller
             ]);
         } catch (\Throwable $e) {
             // Jangan sampai notifikasi WA memblokir alur utama.
-            \Illuminate\Support\Facades\Log::warning('[WA] Gagal kirim notifikasi: '.$e->getMessage());
+            Log::warning('[WA] Gagal kirim notifikasi: '.$e->getMessage());
         }
     }
 
@@ -601,7 +605,6 @@ class IdentifikasiKebutuhanController extends Controller
      *
      * @param  list<array{id_sipd_penetapan?: int|string, pagu?: float|int|string}>  $anggaran
      * @param  int|null  $excludeIdentifikasiId  id paket sendiri saat update (jangan hitung ganda)
-     * @return void
      *
      * @throws ValidationException
      */

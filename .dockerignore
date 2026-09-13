@@ -1,16 +1,24 @@
-node_modules
-vendor
-storage
-bootstrap/cache
-public/build
-public/hot
-public/storage
+# === Node / Frontend ===
+node_modules/
+public/build/
+public/hot/
+public/storage/
+
+# === PHP / Composer ===
+vendor/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+storage/logs/
+bootstrap/cache/
+
 .phpunit.result.cache
 .php-cs-fixer.cache
 .phpstorm.meta.php
 .idea
 *.swp
 *.swo
+*.bak
 .env
-.env.backup
+.env.production
 docker-compose.override.yml

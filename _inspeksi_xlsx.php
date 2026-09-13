@@ -1,6 +1,7 @@
 <?php
-ini_set("memory_limit","-1");
-ini_set("max_execution_time","300");
+
+ini_set('memory_limit', '-1');
+ini_set('max_execution_time', '300');
 require __DIR__.'/vendor/autoload.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -13,7 +14,7 @@ $spreadsheet = $reader->load($path);
 echo "=== SHEETS ===\n";
 foreach ($spreadsheet->getSheetNames() as $i => $name) {
     $ws = $spreadsheet->getSheet($i);
-    echo "Sheet[$i]: '$name' — baris: ".$ws->getHighestDataRow().", kolom: ".$ws->getHighestDataColumn()."\n";
+    echo "Sheet[$i]: '$name' — baris: ".$ws->getHighestDataRow().', kolom: '.$ws->getHighestDataColumn()."\n";
 }
 
 // Ambil sheet pertama saja untuk inspeksi header & 5 baris pertama
@@ -25,8 +26,12 @@ for ($r = 1; $r <= min(6, $highestRow); $r++) {
     $vals = [];
     for ($c = 'A'; $c <= $highestCol; $c++) {
         $v = $ws->getCell($c.$r)->getValue();
-        if (is_object($v) && method_exists($v, 'getPlainText')) $v = $v->getPlainText();
-        if ($v !== null && trim((string)$v) !== '') $vals[] = "$c=".mb_substr((string)$v, 0, 45);
+        if (is_object($v) && method_exists($v, 'getPlainText')) {
+            $v = $v->getPlainText();
+        }
+        if ($v !== null && trim((string) $v) !== '') {
+            $vals[] = "$c=".mb_substr((string) $v, 0, 45);
+        }
     }
     echo "Row $r: ".implode(' | ', $vals)."\n";
 }

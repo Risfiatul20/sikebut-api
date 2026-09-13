@@ -1,58 +1,109 @@
+x-logging: &default-logging
+    driver: "json-file"
+    options:
+        max-size: "20m"
+        max-file: "5"
+
 services:
-  app:
-    build:
-      context: .
-      dockerfile: docker/php/Dockerfile
-    image: sikebut-api:1.0.0
-    restart: unless-stopped
-    expose: ["9000"]
-    env_file: .env.production
-    volumes:
-      - storage:/var/www/html/storage
-    networks:
-      - db-network
-      - app-network
-    deploy:
-      resources:
-        limits: { cpus: "1.000", memory: 1024M }
-        reservations: { cpus: "0.500", memory: 512M }
-    healthcheck:
-      test: ["CMD", "php", "-r", "exit(0);"]
-      interval: 30s
-      retries: 3
+    nginx:
+        image: nginx:alpine
+        container_name: sikebut-api-nginx
+        restart: unless-stopped
+        ports:
+            - "8086:80"
+        volumes:
+            - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+            # - ./docker/nginx/ssl:/etc/letsencrypt:ro
+            - public:/var/www:ro
+            - storage:/var/www/storage:ro
+        depends_on:
+            sikebut-api:
+                condition: service_healthy
+        networks:
+            - app-network
+        logging: *default-logging
 
-  queue:
-    image: sikebut-api:1.0.0
-    restart: unless-stopped
-    command: ["php","artisan","queue:work","redis","--tries=3","--max-time=3600","--backoff=30"]
-    env_file: .env.production
-    volumes: [storage:/var/www/html/storage]
-    networks:
-      - db-network
-      - app-network
-    deploy:
-      resources:
-        limits: { cpus: "0.750", memory: 768M }
-        reservations: { cpus: "0.250", memory: 384M }
+    sikebut-api:
+        build:
+            context: .
+            dockerfile: docker/php/Dockerfile
+        image: sikebut-api:1.0.0
+        container_name: sikebut-api-app
+        restart: unless-stopped
+        expose: ["9000"]
+        env_file: .env
+        volumes:
+            - public:/var/www:ro
+              - storage:/var/www/storage
+        networks:
+            - db-network
+            - app-network
+        deploy:
+            resources:
+                limits: { cpus: "1.000", memory: 1024M }
+                reservations: { cpus: "0.500", memory: 512M }
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "cgi-fcgi -bind -connect 127.0.0.1:9000 || exit 1",
+                ]
+            interval: 15s
+            timeout: 5s
+            retries: 3
+        logging: *default-logging
 
-  scheduler:
-    image: sikebut-api:1.0.0
-    restart: unless-stopped
-    command: ["sh","-c","while true; do php artisan schedule:run --no-interaction; sleep 60; done"]
-    env_file: .env.production
-    networks:
-      - db-network
-    deploy:
-      resources:
-        limits: { cpus: "0.250", memory: 256M }
+    queue:
+        image: sikebut-api:1.0.0
+        container_name: sikebut-api-queue
+        restart: unless-stopped
+        command:
+            [
+                "php",
+                "artisan",
+                "queue:work",
+                "redis",
+                "--tries=3",
+                "--max-time=3600",
+                "--backoff=30",
+            ]
+        stop_signal: SIGTERM
+        stop_grace_period: 60s
+        env_file: .env
+        volumes:
+            - storage:/var/www/storage
+        networks:
+            - db-network
+            - app-network
+        deploy:
+            resources:
+                limits: { cpus: "0.750", memory: 768M }
+                reservations: { cpus: "0.250", memory: 384M }
+        logging: *default-logging
+
+    scheduler:
+        image: sikebut-api:1.0.0
+        container_name: sikebut-api-scheduler
+        restart: unless-stopped
+        command: ["php", "artisan", "schedule:work"]
+        env_file: .env
+        networks:
+            - db-network
+        deploy:
+            resources:
+                limits: { cpus: "0.250", memory: 256M }
+        logging: *default-logging
 
 networks:
-  db-network:
-    external: true
-    name: db-network
-  app-network:
-    external: true
-    name: app-network
+    db-network:
+        external: true
+        name: db-network
+    app-network:
+        external: true
+        name: app-network
 
 volumes:
-  storage:
+    storage:
+        name: sikebut-storage
+    public:
+        name: sikebut-public

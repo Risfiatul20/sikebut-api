@@ -141,12 +141,15 @@ class ImportController extends Controller
         $request->validate([
             // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
             // konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
-            'file' => ['required', 'file', 'max:20480', function ($attribute, $value, $fail) {
+            'file' => ['required', 'file', 'max:51200', function ($attribute, $value, $fail) {
                 $ext = strtolower($value->getClientOriginalExtension());
                 if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
                     $fail('Format file harus .xlsx, .xls, atau .csv.');
                 }
             }],
+            'tahun' => ['nullable', 'integer'],
+            'versi' => ['nullable', 'string', 'max:100'],
+            'nama_versi' => ['nullable', 'string', 'max:100'],
         ]);
 
         $importId = (string) Str::uuid();
@@ -170,7 +173,7 @@ class ImportController extends Controller
                 new SipdPenetapanApbdImport(
                     $importId,
                     $request->integer('tahun') ?: null,
-                    $request->string('nama_versi')->toString() ?: null
+                    $request->input('versi') ?: ($request->string('nama_versi')->toString() ?: null)
                 ),
                 $filePath
             );

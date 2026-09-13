@@ -16,9 +16,7 @@ class BaRkbmdExport implements FromArray, WithHeadings, WithStyles
     /**
      * @param  array<string, mixed>  $data  hasil dari LaporanController::baRkbmd()
      */
-    public function __construct(private array $data)
-    {
-    }
+    public function __construct(private array $data) {}
 
     private function rantai(array $r): string
     {
@@ -29,6 +27,7 @@ class BaRkbmdExport implements FromArray, WithHeadings, WithStyles
             $r['nama_sub_kegiatan'] ?? '',
             $r['nama_paket'] ?? '',
         ]);
+
         return implode(' / ', $bagian);
     }
 
@@ -38,6 +37,7 @@ class BaRkbmdExport implements FromArray, WithHeadings, WithStyles
         foreach ((array) ($r['items'] ?? []) as $it) {
             $list[] = trim((string) ($it['nama_barang'] ?? '').' '.number_format((float) ($it['jumlah'] ?? 0), 0, ',', '.').' '.(string) ($it['satuan'] ?? ''));
         }
+
         return implode('; ', array_filter($list));
     }
 
@@ -48,6 +48,7 @@ class BaRkbmdExport implements FromArray, WithHeadings, WithStyles
     private function angka(mixed $v): float|string
     {
         $f = (float) $v;
+
         return $f == 0 ? '0' : $f;
     }
 
@@ -67,6 +68,7 @@ class BaRkbmdExport implements FromArray, WithHeadings, WithStyles
                 (string) ($r['catatan_pembahasan'] ?? ''),
             ];
         }
+
         return $rows;
     }
 

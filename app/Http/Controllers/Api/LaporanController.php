@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exports\BaPembahasanExport;
+use App\Exports\BaRkbmdExport;
 use App\Exports\LaporanKebutuhanExport;
+use App\Exports\LaporanPaketExport;
 use App\Exports\LaporanRekapExport;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -249,6 +252,7 @@ class LaporanController extends Controller
             if ($pengadaan > 0) {
                 return round(min(100, ($paguPaket / $pengadaan) * 100), 2);
             }
+
             return 0.0;
         };
 
@@ -573,7 +577,7 @@ class LaporanController extends Controller
         $caraNormalized = strtolower(trim($cara));
 
         return Excel::download(
-            new \App\Exports\LaporanPaketExport($data, $caraNormalized),
+            new LaporanPaketExport($data, $caraNormalized),
             'laporan-'.($caraNormalized === 'penyedia' ? 'penyedia' : 'swakelola').'-identifikasi-'.date('Y-m-d').'.xlsx'
         );
     }
@@ -728,7 +732,7 @@ class LaporanController extends Controller
         $caraNormalized = strtolower(trim($cara));
 
         return Excel::download(
-            new \App\Exports\BaPembahasanExport($data),
+            new BaPembahasanExport($data),
             'ba-pembahasan-'.$caraNormalized.'-'.date('Y-m-d').'.xlsx'
         );
     }
@@ -882,7 +886,7 @@ class LaporanController extends Controller
         $tipeNormalized = strtolower(trim($tipe));
 
         return Excel::download(
-            new \App\Exports\BaRkbmdExport($data),
+            new BaRkbmdExport($data),
             'ba-catatan-rkbmd-'.$tipeNormalized.'-'.date('Y-m-d').'.xlsx'
         );
     }
