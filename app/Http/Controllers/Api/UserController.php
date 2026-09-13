@@ -40,7 +40,7 @@ class UserController extends Controller
         if ($currentUser) {
             $userRole = strtolower(trim((string) $currentUser->role));
 
-            if ($userRole === 'kepala opd') {
+            if ($userRole === 'kepala opd' || $userRole === 'kepala sub unit') {
                 // OPD induk dan seluruh sub unit di bawahnya
                 $skpdCodes = RefSkpd::query()
                     ->where('kode_skpd', $currentUser->kode_skpd)
@@ -49,9 +49,6 @@ class UserController extends Controller
                     ->all();
 
                 $query->whereIn('kode_skpd', ! empty($skpdCodes) ? $skpdCodes : [$currentUser->kode_skpd]);
-            } elseif ($userRole === 'kepala sub unit') {
-                // Hanya SKPD sub unit nya sendiri
-                $query->where('kode_skpd', $currentUser->kode_skpd);
             }
             // Role Admin/lainnya tidak dibatasi (bisa melihat semua)
         }
