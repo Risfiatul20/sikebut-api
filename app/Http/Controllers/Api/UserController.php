@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\User\StoreUserRequest;
 use App\Http\Requests\User\UpdateUserRequest;
 use App\Http\Resources\UserResource;
+use App\Models\RefSkpd;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,6 +34,27 @@ class UserController extends Controller
         }
 
         $query = User::with(['skpd', 'subKegiatan.kegiatan.program.bidangUrusan']);
+
+        // Filter berdasarkan role user yang sedang login
+        $currentUser = $request->user();
+        if ($currentUser) {
+            $userRole = strtolower(trim((string) $currentUser->role));
+
+            if ($userRole === 'kepala opd') {
+                // OPD induk dan seluruh sub unit di bawahnya
+                $skpdCodes = RefSkpd::query()
+                    ->where('kode_skpd', $currentUser->kode_skpd)
+                    ->orWhere('parent_kode_skpd', $currentUser->kode_skpd)
+                    ->pluck('kode_skpd')
+                    ->all();
+
+                $query->whereIn('kode_skpd', ! empty($skpdCodes) ? $skpdCodes : [$currentUser->kode_skpd]);
+            } elseif ($userRole === 'kepala sub unit') {
+                // Hanya SKPD sub unit nya sendiri
+                $query->where('kode_skpd', $currentUser->kode_skpd);
+            }
+            // Role Admin/lainnya tidak dibatasi (bisa melihat semua)
+        }
 
         if ($search) {
             $query->where(function ($q) use ($search) {
