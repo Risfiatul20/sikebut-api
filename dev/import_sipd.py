@@ -14,25 +14,25 @@ DB_CONFIG = {
     'options': '-c search_path=dev'  # Memaksa koneksi masuk ke schema 'dev'
 }
 
-FILE_PATH = '13_Provinsi Sumatera Barat_Rekap_Ver4_Penetapan APBD 2026_Terkunci.xlsx'
+FILE_PATH = '13_Provinsi Sumatera Barat_Rekap_Ver4_Penyempurnaan hasi verifikasi dan hasil reviw_Belum_Terkunci.xlsx'
 
 def clean_string(val):
     """Membersihkan nilai sel menjadi string murni atau None"""
     # Tangkap nilai kosong bawaan Python/Pandas
     if pd.isna(val) or val is None:
         return None
-    
+
     # Ubah ke string lalu hapus spasi awal & akhir
     val_str = str(val).strip()
-    
+
     # Tangkap string gadungan hasil konversi yang menyerupai kosong
     if val_str.lower() in ['nan', 'none', 'null', '']:
         return None
-        
+
     # Jika aslinya float desimal tapi sebenarnya bilangan bulat (misal 1.0 jadi '1')
     if isinstance(val, float) and val.is_integer():
         return str(int(val)).strip()
-        
+
     return val_str
 
 def run_import(tahun_param, versi_param):
@@ -44,7 +44,7 @@ def run_import(tahun_param, versi_param):
         return
 
     print("Membersihkan dan menormalisasi data...")
-    
+
     # 1. Bersihkan semua kolom kecuali PAGU dan TAHUN
     text_columns = [col for col in df.columns if col not in ['PAGU', 'TAHUN', 'NO']]
     for col in text_columns:
@@ -53,11 +53,11 @@ def run_import(tahun_param, versi_param):
     # 2. Tangani khusus kolom numerik agar tidak error saat dihitung
     if 'TAHUN' in df.columns:
         df['TAHUN'] = pd.to_numeric(df['TAHUN'], errors='coerce').fillna(0).astype(int)
-    
+
     if 'PAGU' in df.columns:
         df['PAGU'] = pd.to_numeric(df['PAGU'], errors='coerce').fillna(0)
 
-    # 3. SAPU BERSIH: Paksa semua data yang terdeteksi 'Not a Number' (NaN/NaT) 
+    # 3. SAPU BERSIH: Paksa semua data yang terdeteksi 'Not a Number' (NaN/NaT)
     # menjadi tipe None bawaan Python. Ini KUNCI UTAMA agar masuk ke DB sebagai NULL.
     df = df.astype(object).where(pd.notna(df), None)
 
@@ -113,7 +113,7 @@ def run_import(tahun_param, versi_param):
         skpd = df[['KODE SKPD', 'NAMA SKPD']].drop_duplicates().dropna(subset=['KODE SKPD']).copy()
         skpd['parent'] = None
         # Baris penentuan level dihapus
-        
+
         if not skpd.empty:
             extras.execute_values(cursor, """
                 INSERT INTO ref_skpd (kode_skpd, nama_skpd, parent_kode_skpd) VALUES %s
@@ -123,9 +123,9 @@ def run_import(tahun_param, versi_param):
         # 7. Master SKPD (Sub Unit)
         sub_unit = df[['KODE SUB UNIT', 'NAMA SUB UNIT', 'KODE SKPD']].drop_duplicates().dropna(subset=['KODE SUB UNIT']).copy()
         # Baris penentuan level dihapus
-        
+
         # Susun ulang agar sesuai parameter query: kode, nama, parent
-        sub_unit = sub_unit[['KODE SUB UNIT', 'NAMA SUB UNIT', 'KODE SKPD']] 
+        sub_unit = sub_unit[['KODE SUB UNIT', 'NAMA SUB UNIT', 'KODE SKPD']]
         if not sub_unit.empty:
             extras.execute_values(cursor, """
                 INSERT INTO ref_skpd (kode_skpd, nama_skpd, parent_kode_skpd) VALUES %s
@@ -146,20 +146,20 @@ def run_import(tahun_param, versi_param):
         print("Data lama berhasil dihapus.")
 
         print("Memasukkan Data Transaksi Penetapan APBD...")
-        
+
         # 9. Transaksi Penetapan APBD
         apbd_data = df[[
-            'KODE DAERAH', 'NAMA DAERAH', 'TAHUN', 'KODE SUB UNIT', 'KODE SUB KEGIATAN', 
+            'KODE DAERAH', 'NAMA DAERAH', 'TAHUN', 'KODE SUB UNIT', 'KODE SUB KEGIATAN',
             'KODE STANDAR HARGA', 'KODE REKENING', 'KODE SUMBER DANA', 'NAMA SUMBER DANA', 'PAGU'
         ]].copy()
-        
+
         # Tambahkan kolom versi ke urutan terakhir
         apbd_data['versi'] = versi_param
 
         # --- JURUS PAMUNGKAS: Bersihkan di level Python List ---
         raw_list = apbd_data.values.tolist()
         final_insert_list = []
-        
+
         for row in raw_list:
             clean_row = []
             for val in row:
@@ -173,11 +173,11 @@ def run_import(tahun_param, versi_param):
 
         insert_query = """
             INSERT INTO sipd_penetapan_apbd (
-                kode_daerah, nama_daerah, tahun, kode_sub_unit, kode_sub_kegiatan, 
+                kode_daerah, nama_daerah, tahun, kode_sub_unit, kode_sub_kegiatan,
                 kode_standar_harga, kode_rekening, kode_sumber_dana, nama_sumber_dana, pagu, versi
             ) VALUES %s
         """
-        
+
         # Eksekusi dengan final_insert_list yang sudah 100% bersih
         extras.execute_values(cursor, insert_query, final_insert_list)
 
@@ -199,8 +199,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Script Import Data APBD SIPD")
     parser.add_argument('--tahun', type=int, required=True, help="Tahun anggaran (contoh: 2026)")
     parser.add_argument('--versi', type=str, required=True, help="Versi data (contoh: Ver4_Terkunci)")
-    
+
     args = parser.parse_args()
-    
+
     # Menjalankan fungsi utama dengan parameter yang ditangkap
     run_import(args.tahun, args.versi)
