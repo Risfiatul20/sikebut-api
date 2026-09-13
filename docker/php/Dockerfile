@@ -53,15 +53,6 @@ RUN apk add --no-cache curl fcgi libpng-dev zip unzip libpq-dev libzip-dev autoc
 RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 COPY docker/php/php.ini $PHP_INI_DIR/conf.d/php-production.ini
 
-# Setup Direktori & Permission secara ketat
-RUN mkdir -p /var/www/bootstrap/cache \
-    && mkdir -p /var/www/storage/framework/cache \
-    && mkdir -p /var/www/storage/framework/sessions \
-    && mkdir -p /var/www/storage/framework/views \
-    && mkdir -p /var/www/storage/app/public \
-    && chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache \
-    && chmod -R 775 /var/www/storage /var/www/bootstrap/cache
-
 # Copy hasil install composer dependencies dari Stage 2 ke container
 COPY --from=composer-base --chown=www-data:www-data /var/www /var/www
 
@@ -70,6 +61,15 @@ COPY --from=composer-base --chown=www-data:www-data /var/www /var/www
 
 COPY --chown=www-data:www-data docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Setup Direktori & Permission secara ketat
+RUN mkdir -p /var/www/bootstrap/cache \
+    && mkdir -p /var/www/storage/framework/cache \
+    && mkdir -p /var/www/storage/framework/sessions \
+    && mkdir -p /var/www/storage/framework/views \
+    && mkdir -p /var/www/storage/app/public \
+    && chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache \
+    && chmod -R 775 /var/www/storage /var/www/bootstrap/cache
 
 # Pindah ke user aman (www-data) untuk runtime keamanan
 USER www-data
