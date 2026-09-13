@@ -88,7 +88,7 @@ class IdentifikasiKebutuhanController extends Controller
             });
         }
 
-        foreach (['status_review', 'cara_pengadaan', 'jenis_pengadaan', 'kode_program', 'kode_kegiatan', 'kode_sub_kegiatan'] as $field) {
+        foreach (['tahun', 'status_review', 'cara_pengadaan', 'jenis_pengadaan', 'kode_program', 'kode_kegiatan', 'kode_sub_kegiatan'] as $field) {
             $value = $request->query($field);
             if ($value) {
                 $query->where($field, $value);
