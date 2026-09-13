@@ -1,5 +1,6 @@
 *.log
 *.bak
+_*.php
 .DS_Store
 .env
 .env.backup
@@ -30,5 +31,3 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
-*.bak
-_*.php
