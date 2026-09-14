@@ -16,9 +16,10 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
  * Struktur PERSIS template Laporan.xlsx:
  * - Baris 1-2 : judul & sub judul laporan
  * - Baris 3-4 : header 2 baris dengan merge sesuai template
- * - Baris 5+  : data, SATU BARIS PER REKENING (MAK).
- *   Kolom "Pagu" = pagu rekening baris itu, "Total Pagu" = total paket
- *   (diulang di tiap baris rekening paket yang sama), "No" diulang per paket.
+ * - Baris 5+  : data, SATU BARIS PER KODE STANDAR HARGA.
+ *   Kolom "MAK" memuat 3 baris: kode sub kegiatan -> kode rekening -> kode standar harga.
+ *   Kolom "Pagu" = pagu kode standar baris itu, "Total Pagu" = total paket
+ *   (diulang di tiap baris paket yang sama), "No" diulang per paket.
  *
  * Penyedia  = 26 kolom (A..Z) · Swakelola = 15 kolom (A..O).
  */
@@ -63,6 +64,21 @@ class LaporanPaketExport implements FromArray, WithStyles
         }
 
         return (self::BULAN[(int) date('n', $ts)] ?? date('M', $ts)).' '.date('Y', $ts);
+    }
+
+    /**
+     * Kolom MAK — 3 baris berurutan (arahan atasan):
+     * kode sub kegiatan -> kode rekening -> kode standar harga.
+     */
+    private function makTeks(array $r, array $m): string
+    {
+        $baris = [
+            trim((string) ($r['kode_sub_kegiatan'] ?? '')),
+            trim((string) ($m['kode_rekening'] ?? '')),
+            trim((string) ($m['kode_standar'] ?? '')),
+        ];
+
+        return implode("\n", array_values(array_filter($baris, fn ($v) => $v !== '')));
     }
 
     /** Rantai hierarki: OPD / Sub Unit / Program / Kegiatan / Sub Kegiatan / Paket. */
@@ -167,7 +183,7 @@ class LaporanPaketExport implements FromArray, WithStyles
                         (string) ($r['metode_pengadaan'] ?? ''),
                         (string) ($r['tersedia_ekatalog'] ?? ''),
                         (string) ($r['sumber_dana'] ?? ''),
-                        (string) ($m['kode_rekening'] ?? ''),
+                        $this->makTeks($r, $m),
                         $cell($m['pagu'] ?? 0),
                         $totalPagu,
                         $pemanfaatanMulai,
@@ -181,7 +197,7 @@ class LaporanPaketExport implements FromArray, WithStyles
                     $rows[] = array_merge($base, [
                         (string) ($r['tipe_swakelola'] ?? ''),
                         (string) ($r['sumber_dana'] ?? ''),
-                        (string) ($m['kode_rekening'] ?? ''),
+                        $this->makTeks($r, $m),
                         $cell($m['pagu'] ?? 0),
                         $totalPagu,
                         $pelaksanaanMulai,

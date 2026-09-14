@@ -462,6 +462,7 @@ class LaporanController extends Controller
         $anggaranRows = $ids
             ? DB::table('dev.identifikasi_kebutuhan_anggaran as a')
                 ->leftJoin('dev.sipd_penetapan_apbd as sp', 'sp.id', '=', 'a.id_sipd_penetapan')
+                ->leftJoin('dev.ref_standar_harga as sh', 'sh.kode_standar_harga', '=', 'a.kode_standar_harga')
                 ->whereIn('a.identifikasi_kebutuhan_id', $ids)
                 ->select([
                     'a.identifikasi_kebutuhan_id',
@@ -469,6 +470,7 @@ class LaporanController extends Controller
                     'a.pagu',
                     DB::raw('COALESCE(sp.kode_rekening, a.kode_standar_harga) as kode_rekening'),
                     DB::raw('COALESCE(a.kode_standar_harga, \'\') as kode_standar_harga_out'),
+                    DB::raw('COALESCE(sh.nama_standar_harga, \'\') as nama_standar_harga'),
                 ])
                 ->orderBy('a.identifikasi_kebutuhan_id')
                 ->get()
@@ -523,20 +525,25 @@ class LaporanController extends Controller
             $mak = $anggaranRows->get($p->id) ?? collect();
             $totalPagu = round((float) $mak->sum('pagu'), 2);
 
-            // Kelompokkan per rekening (MAK): kalau satu paket punya beberapa
-            // standar harga dengan kode rekening yang sama, pagunya dijumlahkan
-            // supaya rekening tidak tampil sebagai baris ganda di laporan.
+            // Satu baris laporan = satu KODE STANDAR HARGA (arahan atasan).
+            // Kolom MAK menampilkan berurutan: kode sub kegiatan -> kode rekening -> kode standar.
+            // Bila satu kode standar yang sama dipakai lebih dari sekali, pagunya dijumlahkan.
             $makRingkas = [];
             foreach ($mak as $m) {
                 $rek = (string) ($m->kode_rekening ?? '');
-                if (! isset($makRingkas[$rek])) {
-                    $makRingkas[$rek] = [
+                $standar = (string) ($m->kode_standar_harga_out ?? '');
+                $kunci = $rek.'|'.$standar;
+                if (! isset($makRingkas[$kunci])) {
+                    $makRingkas[$kunci] = [
                         'kode_rekening' => $rek,
-                        'nama' => (string) ($m->kode_standar_harga_out ?? ''),
+                        'kode_standar' => $standar,
+                        'nama_standar' => (string) ($m->nama_standar_harga ?? ''),
+                        // Dipertahankan untuk kompatibilitas pemakai lama.
+                        'nama' => $standar,
                         'pagu' => 0.0,
                     ];
                 }
-                $makRingkas[$rek]['pagu'] += round((float) $m->pagu, 2);
+                $makRingkas[$kunci]['pagu'] += round((float) $m->pagu, 2);
             }
 
             $rincian[] = [
