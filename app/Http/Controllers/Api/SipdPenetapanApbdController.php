@@ -250,6 +250,8 @@ class SipdPenetapanApbdController extends Controller
             ->where('spa.kode_sub_kegiatan', $context->kode_sub_kegiatan)
             ->where('spa.tahun', $tahunAktif)
             ->where('spa.pagu', '>', 0) // Pagu kosong tidak ditampilkan (arahan: pagu kosong jangan diambil)
+            // Hanya rekening belanja pengadaan yang ditampilkan di Daftar Standar Harga (arahan butir 10).
+            ->whereRaw('COALESCE(ind.is_belanja_pengadaan, false) = true')
             ->select([
                 'spa.id as id_sipd_penetapan',
                 'spa.kode_rekening',
