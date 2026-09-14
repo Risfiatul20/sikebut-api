@@ -289,6 +289,7 @@ CREATE TABLE dev.user_sub_kegiatan (
 CREATE TABLE dev.identifikasi_kebutuhan (
 	id bigserial NOT NULL,
 	user_id int8 NOT NULL,
+	tahun int4 NULL,
 	kode_klpd varchar(50) NULL,
 	kode_skpd varchar(50) NOT NULL,
 	kode_program varchar(50) NULL,

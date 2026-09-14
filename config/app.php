@@ -17,6 +17,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | URL aplikasi Next.js (SIKEBUT App). Dipakai untuk menyusun tautan di
+    | dalam pesan notifikasi WhatsApp supaya penerima bisa langsung membuka
+    | paket yang dimaksud.
+    |
+    */
+
+    'frontend_url' => env('FRONTEND_URL', 'http://localhost:3000'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |

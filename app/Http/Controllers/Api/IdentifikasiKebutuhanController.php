@@ -12,6 +12,7 @@ use App\Models\IdentifikasiKebutuhanRiwayat;
 use App\Models\Notification;
 use App\Models\User;
 use App\Services\WaGatewayService;
+use App\Services\WaNotifikasiService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -87,7 +88,7 @@ class IdentifikasiKebutuhanController extends Controller
             });
         }
 
-        foreach (['status_review', 'cara_pengadaan', 'jenis_pengadaan', 'kode_program', 'kode_kegiatan', 'kode_sub_kegiatan'] as $field) {
+        foreach (['status_review', 'cara_pengadaan', 'jenis_pengadaan', 'kode_program', 'kode_kegiatan', 'kode_sub_kegiatan', 'tahun'] as $field) {
             $value = $request->query($field);
             if ($value) {
                 $query->where($field, $value);
@@ -194,10 +195,7 @@ class IdentifikasiKebutuhanController extends Controller
 
             // "Ajukan Langsung" dari wizard → langsung berstatus Diajukan → beri tahu Verifikator
             if (($validated['status_review'] ?? 'Draft') === self::STATUS_DIAJUKAN) {
-                $this->notifyReviewers(
-                    $kebutuhan,
-                    'Paket "' . $kebutuhan->nama_paket . '" diajukan untuk review dan menunggu verifikasi.'
-                );
+                $this->notifyReviewers($kebutuhan, 'diajukan');
             }
 
             return $kebutuhan;
@@ -343,7 +341,7 @@ class IdentifikasiKebutuhanController extends Controller
         $statusSebelum = $kebutuhan->status_review;
         $kebutuhan->update(['status_review' => self::STATUS_DIAJUKAN]);
         $this->catatRiwayat($kebutuhan, $statusSebelum, self::STATUS_DIAJUKAN, null, $request->user()->id);
-        $this->notifyReviewers($kebutuhan, 'Paket "' . $kebutuhan->nama_paket . '" diajukan untuk review dan menunggu verifikasi.');
+        $this->notifyReviewers($kebutuhan, 'diajukan');
         $kebutuhan->load(self::RELATIONS);
 
         return response()->json([
@@ -392,7 +390,7 @@ class IdentifikasiKebutuhanController extends Controller
             $validated['catatan_reviewer'] ?? null,
             $request->user()->id
         );
-        $this->notifyPembuat($kebutuhan, 'Paket "' . $kebutuhan->nama_paket . '" telah DISETUJUI.');
+        $this->notifyPembuat($kebutuhan, 'disetujui', $validated['catatan_reviewer'] ?? null);
 
         $kebutuhan->load(self::RELATIONS);
 
@@ -439,7 +437,7 @@ class IdentifikasiKebutuhanController extends Controller
             $validated['catatan_reviewer'],
             $request->user()->id
         );
-        $this->notifyPembuat($kebutuhan, 'Paket "' . $kebutuhan->nama_paket . '" DIKEMBALIKAN untuk perbaikan: ' . ($validated['catatan_reviewer'] ?? ''));
+        $this->notifyPembuat($kebutuhan, 'dikembalikan', $validated['catatan_reviewer'] ?? null);
 
         $kebutuhan->load(self::RELATIONS);
 
@@ -489,9 +487,12 @@ class IdentifikasiKebutuhanController extends Controller
 
     /**
      * Kirim notifikasi ke semua Verifikator & Admin (saat paket diajukan).
-     * Web notifikasi selalu dibuat; WA dikirim bila user punya nomor (info.no_hp).
+     *
+     * Bell memakai teks PENDEK; WA memakai pesan FORMAL LENGKAP
+     * (WaNotifikasiService) supaya penerima langsung tahu konteks paket.
+     * WA hanya dikirim bila user punya nomor (info.no_hp).
      */
-    private function notifyReviewers(IdentifikasiKebutuhan $kebutuhan, string $pesan): void
+    private function notifyReviewers(IdentifikasiKebutuhan $kebutuhan, string $kejadian, ?string $catatan = null): void
     {
         $users = User::query()
             ->whereIn('role', ['Verifikator', 'verifikator', 'Admin', 'admin'])
@@ -501,19 +502,18 @@ class IdentifikasiKebutuhanController extends Controller
             Notification::create([
                 'user_id' => $user->id,
                 'tipe' => 'paket_diajukan',
-                'pesan' => $pesan,
+                'pesan' => $this->pesanWeb($kebutuhan, $kejadian, $catatan),
                 'identifikasi_kebutuhan_id' => $kebutuhan->id,
             ]);
 
-            $this->kirimWaJikaAdaNomor($user, $pesan, $kebutuhan->id);
+            $this->kirimWaJikaAdaNomor($user, $kebutuhan, $kejadian, $catatan);
         }
     }
 
     /**
      * Kirim notifikasi ke pembuat paket (saat disetujui / dikembalikan).
-     * Web notifikasi selalu dibuat; WA dikirim bila user punya nomor (info.no_hp).
      */
-    private function notifyPembuat(IdentifikasiKebutuhan $kebutuhan, string $pesan): void
+    private function notifyPembuat(IdentifikasiKebutuhan $kebutuhan, string $kejadian, ?string $catatan = null): void
     {
         if (! $kebutuhan->user_id) {
             return;
@@ -527,19 +527,41 @@ class IdentifikasiKebutuhanController extends Controller
         Notification::create([
             'user_id' => $pembuat->id,
             'tipe' => 'paket_direview',
-            'pesan' => $pesan,
+            'pesan' => $this->pesanWeb($kebutuhan, $kejadian, $catatan),
             'identifikasi_kebutuhan_id' => $kebutuhan->id,
         ]);
 
-        $this->kirimWaJikaAdaNomor($pembuat, $pesan, $kebutuhan->id);
+        $this->kirimWaJikaAdaNomor($pembuat, $kebutuhan, $kejadian, $catatan);
+    }
+
+    /**
+     * Teks PENDEK untuk notifikasi web (bell) — sengaja ringkas karena
+     * dropdown notifikasi hanya menampilkan beberapa baris.
+     */
+    private function pesanWeb(IdentifikasiKebutuhan $kebutuhan, string $kejadian, ?string $catatan = null): string
+    {
+        $nama = '"'.$kebutuhan->nama_paket.'"';
+        $catatan = trim((string) $catatan);
+
+        return match ($kejadian) {
+            'disetujui' => 'Paket '.$nama.' telah DISETUJUI.'
+                .($catatan !== '' ? ' Catatan: '.$catatan : ''),
+            'dikembalikan' => 'Paket '.$nama.' DIKEMBALIKAN untuk perbaikan'
+                .($catatan !== '' ? ': '.$catatan : '.'),
+            default => 'Paket '.$nama.' diajukan untuk review dan menunggu verifikasi.',
+        };
     }
 
     /**
      * Kirim pesan WA bila user punya nomor WhatsApp (info.no_hp).
      * Gagal kirim WA TIDAK menggagalkan alur utama (web notifikasi tetap jalan).
      */
-    private function kirimWaJikaAdaNomor(User $user, string $pesan, ?int $identifikasiKebutuhanId = null): void
-    {
+    private function kirimWaJikaAdaNomor(
+        User $user,
+        IdentifikasiKebutuhan $kebutuhan,
+        string $kejadian,
+        ?string $catatan = null
+    ): void {
         $info = is_array($user->info) ? $user->info : [];
         $nomor = (string) ($info['no_hp'] ?? '');
         if ($nomor === '') {
@@ -547,9 +569,9 @@ class IdentifikasiKebutuhanController extends Controller
         }
 
         try {
-            WaGatewayService::send($nomor, $pesan, [
+            WaGatewayService::send($nomor, WaNotifikasiService::pesanPaket($kebutuhan, $kejadian, $catatan), [
                 'user_id' => $user->id,
-                'identifikasi_kebutuhan_id' => $identifikasiKebutuhanId,
+                'identifikasi_kebutuhan_id' => $kebutuhan->id,
             ]);
         } catch (\Throwable $e) {
             // Jangan sampai notifikasi WA memblokir alur utama.

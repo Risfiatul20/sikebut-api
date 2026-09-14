@@ -382,6 +382,12 @@ class LaporanController extends Controller
             $base->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
         }
 
+        // Filter tahun anggaran (dari navbar) — kosong = semua tahun
+        $tahun = (int) ($request->query('tahun') ?: 0);
+        if ($tahun > 0) {
+            $base->where('ik.tahun', $tahun);
+        }
+
         // Agregat per SKPD
         $perSkpd = (clone $base)
             ->select([
@@ -469,27 +475,69 @@ class LaporanController extends Controller
                 ->groupBy('identifikasi_kebutuhan_id')
             : collect();
 
+        // Peta SKPD — dipakai untuk menentukan OPD induk (level teratas pohon laporan)
+        // karena satu OPD bisa punya beberapa sub unit (kode_skpd anak).
+        $skpdMap = DB::table('dev.ref_skpd')
+            ->get(['kode_skpd', 'nama_skpd', 'parent_kode_skpd'])
+            ->keyBy('kode_skpd');
+
         $rincian = [];
         foreach ($paketRows as $p) {
             $fd = is_string($p->form_data) ? json_decode($p->form_data, true) : (array) ($p->form_data ?? []);
             $fd = is_array($fd) ? $fd : [];
 
             $lokasi = [];
+            $lokProvinsi = [];
+            $lokKabupaten = [];
+            $lokDetail = [];
             foreach ((array) ($fd['lokasi'] ?? []) as $l) {
                 $l = (array) $l;
-                $bagian = array_filter([
-                    (string) ($l['provinsi'] ?? ''),
-                    (string) ($l['kabupaten'] ?? ''),
-                    (string) ($l['kecamatan'] ?? ''),
-                    (string) ($l['detail'] ?? ''),
-                ]);
+                $prov = trim((string) ($l['provinsi'] ?? ''));
+                $kab = trim((string) ($l['kabupaten'] ?? ''));
+                $kec = trim((string) ($l['kecamatan'] ?? ''));
+                $det = trim((string) ($l['detail'] ?? ''));
+
+                if ($prov !== '') {
+                    $lokProvinsi[$prov] = true;
+                }
+                if ($kab !== '') {
+                    $lokKabupaten[$kab] = true;
+                }
+                // Kolom "Detil Lokasi" pada template = kecamatan + detail alamat.
+                $detil = implode(', ', array_filter([$kec, $det]));
+                if ($detil !== '') {
+                    $lokDetail[$detil] = true;
+                }
+
+                $bagian = array_filter([$prov, $kab, $kec, $det]);
                 if ($bagian) {
                     $lokasi[] = implode(', ', $bagian);
                 }
             }
 
+            // OPD induk — kalau kode_skpd paket adalah sub unit, naik ke parent-nya.
+            $kodeOpd = $skpdMap[$p->kode_skpd]->parent_kode_skpd ?? null;
+            $kodeOpd = $kodeOpd ?: (string) $p->kode_skpd;
+            $namaOpd = (string) ($skpdMap[$kodeOpd]->nama_skpd ?? $p->nama_skpd ?? $p->kode_skpd);
+
             $mak = $anggaranRows->get($p->id) ?? collect();
             $totalPagu = round((float) $mak->sum('pagu'), 2);
+
+            // Kelompokkan per rekening (MAK): kalau satu paket punya beberapa
+            // standar harga dengan kode rekening yang sama, pagunya dijumlahkan
+            // supaya rekening tidak tampil sebagai baris ganda di laporan.
+            $makRingkas = [];
+            foreach ($mak as $m) {
+                $rek = (string) ($m->kode_rekening ?? '');
+                if (! isset($makRingkas[$rek])) {
+                    $makRingkas[$rek] = [
+                        'kode_rekening' => $rek,
+                        'nama' => (string) ($m->kode_standar_harga_out ?? ''),
+                        'pagu' => 0.0,
+                    ];
+                }
+                $makRingkas[$rek]['pagu'] += round((float) $m->pagu, 2);
+            }
 
             $rincian[] = [
                 'id' => (int) $p->id,
@@ -505,8 +553,14 @@ class LaporanController extends Controller
                 'kode_sub_kegiatan' => (string) ($p->kode_sub_kegiatan ?? ''),
                 'nama_sub_kegiatan' => (string) ($subNama[$p->kode_sub_kegiatan] ?? ''),
                 'nama_user' => (string) ($p->nama_user ?? ''),
+                // Hierarki OPD induk (untuk pengelompokan pohon di laporan)
+                'kode_opd' => (string) $kodeOpd,
+                'nama_opd' => $namaOpd,
                 // Detail isian form (template Laporan.xlsx)
                 'lokasi' => $lokasi,
+                'lokasi_provinsi' => implode('; ', array_keys($lokProvinsi)),
+                'lokasi_kabupaten' => implode('; ', array_keys($lokKabupaten)),
+                'lokasi_detail' => implode('; ', array_keys($lokDetail)),
                 'volume' => (float) ($fd['volume'] ?? 0),
                 'volume_satuan' => (string) ($fd['volume_satuan'] ?? 'Unit'),
                 'uraian' => (string) ($fd['uraian'] ?? ($fd['uraian_pekerjaan'] ?? '')),
@@ -528,12 +582,8 @@ class LaporanController extends Controller
                 'waktu_pemilihan_akhir' => $p->waktu_pemilihan_akhir,
                 'waktu_pelaksanaan_awal' => $p->waktu_pelaksanaan_kontrak_awal ?: $p->waktu_pelaksanaan_pekerjaan_awal,
                 'waktu_pelaksanaan_akhir' => $p->waktu_pelaksanaan_kontrak_akhir ?: $p->waktu_pelaksanaan_pekerjaan_akhir,
-                // Anggaran
-                'mak' => $mak->map(fn ($m) => [
-                    'kode_rekening' => (string) ($m->kode_rekening ?? ''),
-                    'nama' => (string) ($m->kode_standar_harga_out ?? ''),
-                    'pagu' => round((float) $m->pagu, 2),
-                ])->values()->all(),
+                // Anggaran — satu baris per rekening (MAK).
+                'mak' => array_values($makRingkas),
                 'total_pagu' => $totalPagu,
                 'updated_at' => $p->updated_at,
             ];
@@ -545,6 +595,7 @@ class LaporanController extends Controller
         return response()->json([
             'status' => 'success',
             'data' => [
+                'tahun' => (int) ($request->query('tahun') ?: date('Y')),
                 'cara_pengadaan' => $isPenyedia ? 'Penyedia' : 'Swakelola',
                 'summary' => [
                     'total_paket' => $paket->count(),
@@ -609,6 +660,12 @@ class LaporanController extends Controller
         }
         if ($ppkCodes !== null) {
             $q->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
+        }
+
+        // Filter tahun anggaran (dari navbar) — kosong = semua tahun
+        $tahun = (int) ($request->query('tahun') ?: 0);
+        if ($tahun > 0) {
+            $q->where('ik.tahun', $tahun);
         }
 
         $paket = (clone $q)
@@ -769,6 +826,12 @@ class LaporanController extends Controller
         }
         if ($ppkCodes !== null) {
             $q->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
+        }
+
+        // Filter tahun anggaran (dari navbar) — kosong = semua tahun
+        $tahun = (int) ($request->query('tahun') ?: 0);
+        if ($tahun > 0) {
+            $q->where('ik.tahun', $tahun);
         }
 
         $paket = $q->select([

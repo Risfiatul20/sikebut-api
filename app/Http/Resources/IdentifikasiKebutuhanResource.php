@@ -19,6 +19,7 @@ class IdentifikasiKebutuhanResource extends JsonResource
         return [
             'id' => $this->id,
             'user_id' => $this->user_id,
+            'tahun' => $this->tahun,
             'pembuat' => $this->whenLoaded('pembuat', fn () => [
                 'id' => $this->pembuat?->id,
                 'nama' => $this->pembuat?->nama,

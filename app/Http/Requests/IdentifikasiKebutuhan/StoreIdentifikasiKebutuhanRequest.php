@@ -52,6 +52,7 @@ class StoreIdentifikasiKebutuhanRequest extends FormRequest
     {
         return [
             'nama_paket' => ['required', 'string', 'max:255'],
+            'tahun' => ['nullable', 'integer', 'min:2000', 'max:2100'],
             'cara_pengadaan' => ['required', 'string', 'max:50'],
             'jenis_pengadaan' => ['nullable', 'string', 'max:50'],
             'kode_skpd' => ['required', 'string', 'max:50', Rule::exists('pgsql.dev.ref_skpd', 'kode_skpd')],

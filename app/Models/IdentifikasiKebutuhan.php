@@ -15,6 +15,7 @@ class IdentifikasiKebutuhan extends Model
 
     protected $fillable = [
         'user_id',
+        'tahun',
         'kode_klpd',
         'kode_skpd',
         'kode_program',
@@ -40,6 +41,7 @@ class IdentifikasiKebutuhan extends Model
     protected function casts(): array
     {
         return [
+            'tahun' => 'integer',
             'form_data' => 'array',
             'catatan_reviewer_detail' => 'array',
             'waktu_pemanfaatan_awal' => 'date',

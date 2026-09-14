@@ -40,6 +40,12 @@ class DashboardController extends Controller
             $query->whereIn('ik.status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan']);
         }
 
+        // Filter tahun anggaran (dari navbar) — kosong = semua tahun
+        $tahun = (int) $request->query('tahun', 0);
+        if ($tahun > 0) {
+            $query->where('ik.tahun', $tahun);
+        }
+
         $base = clone $query;
 
         // Jumlah paket per status
@@ -87,6 +93,11 @@ class DashboardController extends Controller
         }
         if ($user && strtoupper((string) $user->role) === 'VERIFIKATOR') {
             $terbaru->whereIn('ik.status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan']);
+        }
+        // Filter tahun anggaran — WAJIB sama dengan agregat di atas,
+        // jika tidak: total paket 0 tapi daftar "paket terbaru" tetap terisi.
+        if ($tahun > 0) {
+            $terbaru->where('ik.tahun', $tahun);
         }
 
         $terbaru = $terbaru
