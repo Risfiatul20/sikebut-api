@@ -486,6 +486,51 @@ class IdentifikasiKebutuhanController extends Controller
     }
 
     /**
+     * Tarik kembali paket yang sudah diajukan (Diajukan → Draft) — arahan butir 5.
+     *
+     * Setelah ditarik, PPK dapat memperbaiki datanya lalu mengajukan ulang.
+     * Hanya pengaju (PPK/Admin) pada lingkup paketnya; dicatat di riwayat dan
+     * Verifikator diberi tahu agar tidak memproses paket yang sudah ditarik.
+     */
+    public function withdraw(Request $request, int $id): JsonResponse
+    {
+        if (! $this->isPengaju($request)) {
+            return response()->json([
+                'message' => 'Hanya PPK atau Admin yang dapat menarik kembali paket yang diajukan.',
+            ], 403);
+        }
+
+        $kebutuhan = $this->scopedQuery($request, false)->findOrFail($id);
+
+        if ($kebutuhan->status_review !== self::STATUS_DIAJUKAN) {
+            return response()->json([
+                'message' => 'Hanya paket berstatus Diajukan yang dapat ditarik kembali.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'catatan' => 'nullable|string|max:500',
+        ]);
+
+        $statusSebelum = $kebutuhan->status_review;
+        $kebutuhan->update(['status_review' => self::STATUS_DRAFT]);
+        $this->catatRiwayat(
+            $kebutuhan,
+            $statusSebelum,
+            self::STATUS_DRAFT,
+            $validated['catatan'] ?? 'Ditarik kembali oleh pengaju untuk diperbaiki.',
+            $request->user()->id
+        );
+        $this->notifyReviewers($kebutuhan, 'ditarik', $validated['catatan'] ?? null);
+        $kebutuhan->load(self::RELATIONS);
+
+        return response()->json([
+            'message' => 'Paket berhasil ditarik kembali ke Draft. Anda dapat memperbaiki lalu mengajukan ulang.',
+            'data' => new IdentifikasiKebutuhanResource($kebutuhan),
+        ]);
+    }
+
+    /**
      * Kirim notifikasi ke semua Verifikator & Admin (saat paket diajukan).
      *
      * Bell memakai teks PENDEK; WA memakai pesan FORMAL LENGKAP
@@ -548,6 +593,8 @@ class IdentifikasiKebutuhanController extends Controller
                 .($catatan !== '' ? ' Catatan: '.$catatan : ''),
             'dikembalikan' => 'Paket '.$nama.' DIKEMBALIKAN untuk perbaikan'
                 .($catatan !== '' ? ': '.$catatan : '.'),
+            'ditarik' => 'Paket '.$nama.' DITARIK kembali oleh pengaju (status kembali ke Draft)'
+                .($catatan !== '' ? '. Alasan: '.$catatan : '.'),
             default => 'Paket '.$nama.' diajukan untuk review dan menunggu verifikasi.',
         };
     }

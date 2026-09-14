@@ -54,6 +54,12 @@ class WaNotifikasiService
             'status' => 'PERLU PERBAIKAN',
             'penutup' => 'Mohon perbaiki paket sesuai catatan di atas, lalu ajukan kembali. Buka SIKEBUT:',
         ],
+        'ditarik' => [
+            'ikon' => '↩️',
+            'judul' => 'PAKET DITARIK KEMBALI OLEH PENGAJU',
+            'status' => 'DITARIK — KEMBALI KE DRAFT',
+            'penutup' => 'PENGAJU menarik paket ini untuk diperbaiki, sehingga TIDAK PERLU Anda proses. Simak perubahan selanjutnya di SIKEBUT:',
+        ],
     ];
 
     /**
@@ -79,7 +85,7 @@ class WaNotifikasiService
     /**
      * Susun pesan WA lengkap untuk satu paket.
      *
-     * @param  string  $kejadian  diajukan | disetujui | dikembalikan
+     * @param  string  $kejadian  diajukan | disetujui | dikembalikan | ditarik
      * @param  string|null  $catatan  Catatan verifikator (dipakai saat disetujui/dikembalikan)
      */
     public static function pesanPaket(

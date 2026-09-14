@@ -67,6 +67,7 @@ Route::prefix('v1')->group(function () {
         Route::post('identifikasi-kebutuhan/{id}/verify', [IdentifikasiKebutuhanController::class, 'verify'])->whereNumber('id');
         Route::post('identifikasi-kebutuhan/{id}/return', [IdentifikasiKebutuhanController::class, 'returnForRevision'])->whereNumber('id');
         Route::post('identifikasi-kebutuhan/{id}/note', [IdentifikasiKebutuhanController::class, 'note'])->whereNumber('id');
+        Route::post('identifikasi-kebutuhan/{id}/withdraw', [IdentifikasiKebutuhanController::class, 'withdraw'])->whereNumber('id');
         Route::get('identifikasi-kebutuhan/{id}/riwayat', [IdentifikasiKebutuhanController::class, 'riwayat'])->whereNumber('id');
         Route::get('sipd-versions', [SipdPenetapanApbdController::class, 'versions']);
         Route::get('sipd-penetapan-apbd/modal', [SipdPenetapanApbdController::class, 'modal']);
