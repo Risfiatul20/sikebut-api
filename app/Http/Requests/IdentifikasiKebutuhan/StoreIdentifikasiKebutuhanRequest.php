@@ -46,6 +46,44 @@ class StoreIdentifikasiKebutuhanRequest extends FormRequest
     }
 
     /**
+     * Validasi lintas tahap (arahan butir 4): tanggal AWAL tahap berikutnya tidak boleh
+     * mendahului tanggal AWAL tahap sebelumnya. Urutan: Pemilihan Penyedia →
+     * Pelaksanaan Kontrak → Pemanfaatan Barang/Jasa.
+     */
+    public function withValidator(\Illuminate\Validation\Validator $validator): void
+    {
+        $validator->after(function ($v): void {
+            $tahap = [
+                ['waktu_pemilihan_awal', 'Waktu Pemilihan Penyedia'],
+                ['waktu_pelaksanaan_kontrak_awal', 'Waktu Pelaksanaan Kontrak'],
+                ['waktu_pemanfaatan_awal', 'Waktu Pemanfaatan'],
+            ];
+
+            $labelSebelum = null;
+            $stampSebelum = null;
+
+            foreach ($tahap as [$key, $label]) {
+                $nilai = $this->input($key);
+                if (! is_string($nilai) || trim($nilai) === '') {
+                    continue;
+                }
+                $stamp = strtotime($nilai);
+                if ($stamp === false) {
+                    continue;
+                }
+                if ($stampSebelum !== null && $stamp < $stampSebelum) {
+                    $v->errors()->add(
+                        $key,
+                        sprintf('%s tidak boleh mendahului %s.', $label, $labelSebelum)
+                    );
+                }
+                $labelSebelum = $label;
+                $stampSebelum = $stamp;
+            }
+        });
+    }
+
+    /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
