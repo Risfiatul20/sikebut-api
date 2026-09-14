@@ -106,5 +106,4 @@ Route::prefix('v1')->group(function () {
         });
     });
 
-    Route::get('laporan/swakelola', [LaporanController::class, 'swakelola']);
 });
