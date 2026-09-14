@@ -8,6 +8,7 @@ use App\Exports\LaporanKebutuhanExport;
 use App\Exports\LaporanPaketExport;
 use App\Exports\LaporanRekapExport;
 use App\Http\Controllers\Controller;
+use App\Models\IdentifikasiKebutuhan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -359,207 +360,370 @@ class LaporanController extends Controller
      *
      * GET /api/v1/laporan/penyedia  |  /api/v1/laporan/swakelola
      */
-    public function paketPerCara(Request $request, string $cara): JsonResponse
+    /**
+     * Laporan paket Penyedia berjenjang:
+     * SKPD -> Sub Unit -> Program -> Kegiatan -> Sub Kegiatan -> Paket
+     *
+     * GET /api/v1/laporan/penyedia
+     */
+    public function penyedia(Request $request): JsonResponse
     {
-        $caraNormalized = strtoupper(trim($cara));
-        $isPenyedia = $caraNormalized === 'PENYEDIA';
-        if (! $isPenyedia && $caraNormalized !== 'SWAKELOLA') {
-            return response()->json(['message' => 'Parameter cara harus Penyedia atau Swakelola.'], 422);
-        }
-
         $kodeSkpd = $this->scopeKodeSkpd($request);
         $user = $request->user();
         $ppkCodes = $user?->ppkSubKegiatanCodes();
+        $tahun = $request->query('tahun');
 
-        $base = DB::table('dev.identifikasi_kebutuhan as ik')
-            ->leftJoin('dev.identifikasi_kebutuhan_anggaran as ika', 'ika.identifikasi_kebutuhan_id', '=', 'ik.id')
-            ->leftJoin('dev.ref_skpd as rs', 'rs.kode_skpd', '=', 'ik.kode_skpd')
-            ->leftJoin('dev.users as u', 'u.id', '=', 'ik.user_id')
-            ->where('ik.cara_pengadaan', $isPenyedia ? 'Penyedia' : 'Swakelola')
-            // Laporan hanya menampilkan paket yang sudah final/diajukan — Draft tidak ditampilkan.
-            ->whereIn('ik.status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan']);
+        $query = IdentifikasiKebutuhan::query()
+            ->with([
+                'skpd.parent',
+                'program',
+                'kegiatan',
+                'subKegiatan',
+                'anggaran',
+                'pembuat',
+            ])
+            ->where('cara_pengadaan', 'Penyedia')
+            ->whereIn('status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan']);
+
+        if ($tahun) {
+            $query->where('tahun', (int) $tahun);
+        }
 
         if ($kodeSkpd) {
-            $base->where('ik.kode_skpd', $kodeSkpd);
+            $query->where(function ($q) use ($kodeSkpd) {
+                $q->where('kode_skpd', $kodeSkpd)
+                    ->orWhereHas('skpd', fn ($sq) => $sq->where('parent_kode_skpd', $kodeSkpd));
+            });
         }
+
         if ($ppkCodes !== null) {
-            $base->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
+            $query->whereIn('kode_sub_kegiatan', $ppkCodes);
         }
 
-        // Agregat per SKPD
-        $perSkpd = (clone $base)
-            ->select([
-                'ik.kode_skpd',
-                DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
-                DB::raw('COUNT(DISTINCT ik.id) as jumlah_paket'),
-                DB::raw('COALESCE(SUM(ika.pagu), 0) as total_pagu'),
-            ])
-            ->groupBy('ik.kode_skpd')
-            ->orderByDesc('jumlah_paket')
-            ->get();
+        $pakets = $query->orderByDesc('updated_at')->get();
 
-        // Agregat per jenis pengadaan
-        $perJenis = (clone $base)
-            ->select(['ik.jenis_pengadaan', DB::raw('COUNT(DISTINCT ik.id) as jumlah_paket'), DB::raw('COALESCE(SUM(ika.pagu), 0) as total_pagu')])
-            ->groupBy('ik.jenis_pengadaan')
-            ->orderByDesc('jumlah_paket')
-            ->get();
+        $tree = [];
 
-        // Agregat per status
-        $perStatus = (clone $base)
-            ->select(['ik.status_review', DB::raw('COUNT(DISTINCT ik.id) as jumlah_paket')])
-            ->groupBy('ik.status_review')
-            ->orderBy('ik.status_review')
-            ->get();
+        foreach ($pakets as $p) {
+            $skpd = $p->skpd;
+            $parentSkpd = $skpd?->parent;
 
-        // ---- Daftar paket LENGKAP sesuai template Laporan.xlsx (sheet Penyedia/Swakelola) ----
-        // Header paket + nama hierarki (program/kegiatan/sub kegiatan) + pembuat.
-        $paketRows = (clone $base)
-            ->select([
-                'ik.id',
-                'ik.nama_paket',
-                'ik.jenis_pengadaan',
-                'ik.status_review',
-                'ik.kode_skpd',
-                'ik.kode_program',
-                'ik.kode_kegiatan',
-                'ik.kode_sub_kegiatan',
-                'ik.form_data',
-                'ik.waktu_pemanfaatan_awal',
-                'ik.waktu_pemanfaatan_akhir',
-                'ik.waktu_pemilihan_awal',
-                'ik.waktu_pemilihan_akhir',
-                'ik.waktu_pelaksanaan_kontrak_awal',
-                'ik.waktu_pelaksanaan_kontrak_akhir',
-                'ik.waktu_pelaksanaan_pekerjaan_awal',
-                'ik.waktu_pelaksanaan_pekerjaan_akhir',
-                DB::raw('MAX(rs.nama_skpd) as nama_skpd'),
-                'u.nama as nama_user',
-                'ik.created_at',
-                'ik.updated_at',
-            ])
-            ->groupBy(
-                'ik.id', 'ik.nama_paket', 'ik.jenis_pengadaan', 'ik.status_review', 'ik.kode_skpd',
-                'ik.kode_program', 'ik.kode_kegiatan', 'ik.kode_sub_kegiatan', 'ik.form_data',
-                'ik.waktu_pemanfaatan_awal', 'ik.waktu_pemanfaatan_akhir',
-                'ik.waktu_pemilihan_awal', 'ik.waktu_pemilihan_akhir',
-                'ik.waktu_pelaksanaan_kontrak_awal', 'ik.waktu_pelaksanaan_kontrak_akhir',
-                'ik.waktu_pelaksanaan_pekerjaan_awal', 'ik.waktu_pelaksanaan_pekerjaan_akhir',
-                'u.nama', 'ik.created_at', 'ik.updated_at'
-            )
-            ->orderByDesc('ik.updated_at')
-            ->get();
+            $kodeInduk = $parentSkpd ? $parentSkpd->kode_skpd : ($skpd ? $skpd->kode_skpd : 'LAINNYA');
+            $namaInduk = $parentSkpd ? $parentSkpd->nama_skpd : ($skpd ? $skpd->nama_skpd : 'SKPD Lainnya');
 
-        // Nama hierarki dari tabel referensi SIPD.
-        $progNama = DB::table('dev.ref_program')->pluck('nama_program', 'kode_program');
-        $kegNama = DB::table('dev.ref_kegiatan')->pluck('nama_kegiatan', 'kode_kegiatan');
-        $subNama = DB::table('dev.ref_sub_kegiatan')->pluck('nama_sub_kegiatan', 'kode_sub_kegiatan');
+            $kodeSubUnit = $skpd ? $skpd->kode_skpd : 'LAINNYA';
+            $namaSubUnit = $skpd ? $skpd->nama_skpd : 'Sub Unit Lainnya';
 
-        // Rincian anggaran (MAK + pagu) per paket — satu query untuk semua paket.
-        $ids = $paketRows->pluck('id')->all();
-        $anggaranRows = $ids
-            ? DB::table('dev.identifikasi_kebutuhan_anggaran as a')
-                ->leftJoin('dev.sipd_penetapan_apbd as sp', 'sp.id', '=', 'a.id_sipd_penetapan')
-                ->whereIn('a.identifikasi_kebutuhan_id', $ids)
-                ->select([
-                    'a.identifikasi_kebutuhan_id',
-                    'a.kode_standar_harga',
-                    'a.pagu',
-                    DB::raw('COALESCE(sp.kode_rekening, a.kode_standar_harga) as kode_rekening'),
-                    DB::raw('COALESCE(a.kode_standar_harga, \'\') as kode_standar_harga_out'),
-                ])
-                ->orderBy('a.identifikasi_kebutuhan_id')
-                ->get()
-                ->groupBy('identifikasi_kebutuhan_id')
-            : collect();
+            $kodeProg = $p->kode_program ?: 'NO_PROG';
+            $namaProg = $p->program?->nama_program ?: 'Program Lainnya';
 
-        $rincian = [];
-        foreach ($paketRows as $p) {
-            $fd = is_string($p->form_data) ? json_decode($p->form_data, true) : (array) ($p->form_data ?? []);
-            $fd = is_array($fd) ? $fd : [];
+            $kodeKeg = $p->kode_kegiatan ?: 'NO_KEG';
+            $namaKeg = $p->kegiatan?->nama_kegiatan ?: 'Kegiatan Lainnya';
 
-            $lokasi = [];
-            foreach ((array) ($fd['lokasi'] ?? []) as $l) {
-                $l = (array) $l;
-                $bagian = array_filter([
-                    (string) ($l['provinsi'] ?? ''),
-                    (string) ($l['kabupaten'] ?? ''),
-                    (string) ($l['kecamatan'] ?? ''),
-                    (string) ($l['detail'] ?? ''),
-                ]);
-                if ($bagian) {
-                    $lokasi[] = implode(', ', $bagian);
-                }
+            $kodeSub = $p->kode_sub_kegiatan ?: 'NO_SUB';
+            $namaSub = $p->subKegiatan?->nama_sub_kegiatan ?: 'Sub Kegiatan Lainnya';
+
+            $paguPaket = round((float) $p->anggaran->sum('pagu'), 2);
+
+            if (! isset($tree[$kodeInduk])) {
+                $tree[$kodeInduk] = [
+                    'kode_skpd' => $kodeInduk,
+                    'nama_skpd' => $namaInduk,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'sub_units' => [],
+                ];
             }
 
-            $mak = $anggaranRows->get($p->id) ?? collect();
-            $totalPagu = round((float) $mak->sum('pagu'), 2);
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit] = [
+                    'kode_sub_unit' => $kodeSubUnit,
+                    'nama_sub_unit' => $namaSubUnit,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'programs' => [],
+                ];
+            }
 
-            $rincian[] = [
-                'id' => (int) $p->id,
-                'nama_paket' => (string) $p->nama_paket,
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg] = [
+                    'kode_program' => $kodeProg,
+                    'nama_program' => $namaProg,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'kegiatans' => [],
+                ];
+            }
+
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg] = [
+                    'kode_kegiatan' => $kodeKeg,
+                    'nama_kegiatan' => $namaKeg,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'sub_kegiatans' => [],
+                ];
+            }
+
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub] = [
+                    'kode_sub_kegiatan' => $kodeSub,
+                    'nama_sub_kegiatan' => $namaSub,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'pakets' => [],
+                ];
+            }
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub]['pakets'][] = [
+                'id' => $p->id,
+                'nama_paket' => $p->nama_paket,
                 'jenis_pengadaan' => $p->jenis_pengadaan,
+                'cara_pengadaan' => $p->cara_pengadaan,
                 'status_review' => $p->status_review,
-                'kode_skpd' => (string) $p->kode_skpd,
-                'nama_skpd' => (string) ($p->nama_skpd ?? $p->kode_skpd),
-                'kode_program' => (string) ($p->kode_program ?? ''),
-                'nama_program' => (string) ($progNama[$p->kode_program] ?? ''),
-                'kode_kegiatan' => (string) ($p->kode_kegiatan ?? ''),
-                'nama_kegiatan' => (string) ($kegNama[$p->kode_kegiatan] ?? ''),
-                'kode_sub_kegiatan' => (string) ($p->kode_sub_kegiatan ?? ''),
-                'nama_sub_kegiatan' => (string) ($subNama[$p->kode_sub_kegiatan] ?? ''),
-                'nama_user' => (string) ($p->nama_user ?? ''),
-                // Detail isian form (template Laporan.xlsx)
-                'lokasi' => $lokasi,
-                'volume' => (float) ($fd['volume'] ?? 0),
-                'volume_satuan' => (string) ($fd['volume_satuan'] ?? 'Unit'),
-                'uraian' => (string) ($fd['uraian'] ?? ($fd['uraian_pekerjaan'] ?? '')),
-                'spesifikasi' => (string) ($fd['spesifikasi'] ?? ($fd['spesifikasi_pekerjaan'] ?? '')),
-                'pdn' => (string) ($fd['pdn'] ?? ''),
-                'usaha_kecil' => (string) ($fd['usaha_kecil'] ?? ''),
-                'spp_ekonomi' => (string) ($fd['spp_ekonomi'] ?? ''),
-                'spp_sosial' => (string) ($fd['spp_sosial'] ?? ''),
-                'spp_lingkungan' => (string) ($fd['spp_lingkungan'] ?? ''),
-                'pra_dpa' => (string) ($fd['pra_dpa'] ?? ''),
-                'metode_pengadaan' => (string) ($fd['metode_pengadaan'] ?? ''),
-                'tersedia_ekatalog' => (string) ($fd['tersedia_ekatalog'] ?? ($fd['tersedia_ekatalog_produk'] ?? '')),
-                'sumber_dana' => (string) ($fd['sumber_dana'] ?? ''),
-                'tipe_swakelola' => (string) ($fd['tipe_swakelola'] ?? ''),
-                // Jadwal (awal & akhir per fase)
+                'tahun' => $p->tahun,
+                'total_pagu' => $paguPaket,
                 'waktu_pemanfaatan_awal' => $p->waktu_pemanfaatan_awal,
                 'waktu_pemanfaatan_akhir' => $p->waktu_pemanfaatan_akhir,
                 'waktu_pemilihan_awal' => $p->waktu_pemilihan_awal,
                 'waktu_pemilihan_akhir' => $p->waktu_pemilihan_akhir,
                 'waktu_pelaksanaan_awal' => $p->waktu_pelaksanaan_kontrak_awal ?: $p->waktu_pelaksanaan_pekerjaan_awal,
                 'waktu_pelaksanaan_akhir' => $p->waktu_pelaksanaan_kontrak_akhir ?: $p->waktu_pelaksanaan_pekerjaan_akhir,
-                // Anggaran
-                'mak' => $mak->map(fn ($m) => [
-                    'kode_rekening' => (string) ($m->kode_rekening ?? ''),
-                    'nama' => (string) ($m->kode_standar_harga_out ?? ''),
-                    'pagu' => round((float) $m->pagu, 2),
-                ])->values()->all(),
-                'total_pagu' => $totalPagu,
-                'updated_at' => $p->updated_at,
+                'nama_user' => $p->pembuat?->nama,
+                'form_data' => $p->form_data,
+                'anggaran' => $p->anggaran,
             ];
+
+            $tree[$kodeInduk]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub]['total_paket']++;
         }
 
-        // Ringkasan lama (kompatibilitas): dari data rincian.
-        $paket = collect($rincian);
+        $result = array_values(array_map(function ($skpd) {
+            $skpd['sub_units'] = array_values(array_map(function ($subUnit) {
+                $subUnit['programs'] = array_values(array_map(function ($prog) {
+                    $prog['kegiatans'] = array_values(array_map(function ($keg) {
+                        $keg['sub_kegiatans'] = array_values($keg['sub_kegiatans']);
+
+                        return $keg;
+                    }, $prog['kegiatans']));
+
+                    return $prog;
+                }, $subUnit['programs']));
+
+                return $subUnit;
+            }, $skpd['sub_units']));
+
+            return $skpd;
+        }, $tree));
+
+        $totalPaguKeseluruhan = array_sum(array_column($result, 'total_pagu'));
+        $totalPaketKeseluruhan = array_sum(array_column($result, 'total_paket'));
 
         return response()->json([
             'status' => 'success',
             'data' => [
-                'cara_pengadaan' => $isPenyedia ? 'Penyedia' : 'Swakelola',
                 'summary' => [
-                    'total_paket' => $paket->count(),
-                    'total_pagu' => round((float) $paket->sum('total_pagu'), 2),
-                    'total_skpd' => $perSkpd->count(),
+                    'total_skpd' => count($result),
+                    'total_paket' => $totalPaketKeseluruhan,
+                    'total_pagu' => round($totalPaguKeseluruhan, 2),
                 ],
-                'per_skpd' => $perSkpd,
-                'per_jenis' => $perJenis,
-                'per_status' => $perStatus,
-                'paket' => $paket,
-                'rincian' => $rincian,
+                'tree' => $result,
+            ],
+        ]);
+    }
+
+    /**
+     * Laporan paket Swakelola berjenjang:
+     * SKPD -> Sub Unit -> Program -> Kegiatan -> Sub Kegiatan -> Paket
+     *
+     * GET /api/v1/laporan/swakelola
+     */
+    public function swakelola(Request $request): JsonResponse
+    {
+        $kodeSkpd = $this->scopeKodeSkpd($request);
+        $user = $request->user();
+        $ppkCodes = $user?->ppkSubKegiatanCodes();
+        $tahun = $request->query('tahun');
+
+        $query = IdentifikasiKebutuhan::query()
+            ->with([
+                'skpd.parent',
+                'program',
+                'kegiatan',
+                'subKegiatan',
+                'anggaran',
+                'pembuat',
+            ])
+            ->where('cara_pengadaan', 'Swakelola')
+            ->whereIn('status_review', ['Diajukan', 'Disetujui', 'Perlu Perbaikan']);
+
+        if ($tahun) {
+            $query->where('tahun', (int) $tahun);
+        }
+
+        if ($kodeSkpd) {
+            $query->where(function ($q) use ($kodeSkpd) {
+                $q->where('kode_skpd', $kodeSkpd)
+                    ->orWhereHas('skpd', fn ($sq) => $sq->where('parent_kode_skpd', $kodeSkpd));
+            });
+        }
+
+        if ($ppkCodes !== null) {
+            $query->whereIn('kode_sub_kegiatan', $ppkCodes);
+        }
+
+        $pakets = $query->orderByDesc('updated_at')->get();
+
+        $tree = [];
+
+        foreach ($pakets as $p) {
+            $skpd = $p->skpd;
+            $parentSkpd = $skpd?->parent;
+
+            $kodeInduk = $parentSkpd ? $parentSkpd->kode_skpd : ($skpd ? $skpd->kode_skpd : 'LAINNYA');
+            $namaInduk = $parentSkpd ? $parentSkpd->nama_skpd : ($skpd ? $skpd->nama_skpd : 'SKPD Lainnya');
+
+            $kodeSubUnit = $skpd ? $skpd->kode_skpd : 'LAINNYA';
+            $namaSubUnit = $skpd ? $skpd->nama_skpd : 'Sub Unit Lainnya';
+
+            $kodeProg = $p->kode_program ?: 'NO_PROG';
+            $namaProg = $p->program?->nama_program ?: 'Program Lainnya';
+
+            $kodeKeg = $p->kode_kegiatan ?: 'NO_KEG';
+            $namaKeg = $p->kegiatan?->nama_kegiatan ?: 'Kegiatan Lainnya';
+
+            $kodeSub = $p->kode_sub_kegiatan ?: 'NO_SUB';
+            $namaSub = $p->subKegiatan?->nama_sub_kegiatan ?: 'Sub Kegiatan Lainnya';
+
+            $paguPaket = round((float) $p->anggaran->sum('pagu'), 2);
+
+            if (! isset($tree[$kodeInduk])) {
+                $tree[$kodeInduk] = [
+                    'kode_skpd' => $kodeInduk,
+                    'nama_skpd' => $namaInduk,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'sub_units' => [],
+                ];
+            }
+
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit] = [
+                    'kode_sub_unit' => $kodeSubUnit,
+                    'nama_sub_unit' => $namaSubUnit,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'programs' => [],
+                ];
+            }
+
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg] = [
+                    'kode_program' => $kodeProg,
+                    'nama_program' => $namaProg,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'kegiatans' => [],
+                ];
+            }
+
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg] = [
+                    'kode_kegiatan' => $kodeKeg,
+                    'nama_kegiatan' => $namaKeg,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'sub_kegiatans' => [],
+                ];
+            }
+
+            if (! isset($tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub])) {
+                $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub] = [
+                    'kode_sub_kegiatan' => $kodeSub,
+                    'nama_sub_kegiatan' => $namaSub,
+                    'total_pagu' => 0,
+                    'total_paket' => 0,
+                    'pakets' => [],
+                ];
+            }
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub]['pakets'][] = [
+                'id' => $p->id,
+                'nama_paket' => $p->nama_paket,
+                'jenis_pengadaan' => $p->jenis_pengadaan,
+                'cara_pengadaan' => $p->cara_pengadaan,
+                'status_review' => $p->status_review,
+                'tahun' => $p->tahun,
+                'total_pagu' => $paguPaket,
+                'waktu_pemanfaatan_awal' => $p->waktu_pemanfaatan_awal,
+                'waktu_pemanfaatan_akhir' => $p->waktu_pemanfaatan_akhir,
+                'waktu_pemilihan_awal' => $p->waktu_pemilihan_awal,
+                'waktu_pemilihan_akhir' => $p->waktu_pemilihan_akhir,
+                'waktu_pelaksanaan_awal' => $p->waktu_pelaksanaan_kontrak_awal ?: $p->waktu_pelaksanaan_pekerjaan_awal,
+                'waktu_pelaksanaan_akhir' => $p->waktu_pelaksanaan_kontrak_akhir ?: $p->waktu_pelaksanaan_pekerjaan_akhir,
+                'nama_user' => $p->pembuat?->nama,
+                'form_data' => $p->form_data,
+                'anggaran' => $p->anggaran,
+            ];
+
+            $tree[$kodeInduk]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['total_paket']++;
+
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub]['total_pagu'] += $paguPaket;
+            $tree[$kodeInduk]['sub_units'][$kodeSubUnit]['programs'][$kodeProg]['kegiatans'][$kodeKeg]['sub_kegiatans'][$kodeSub]['total_paket']++;
+        }
+
+        $result = array_values(array_map(function ($skpd) {
+            $skpd['sub_units'] = array_values(array_map(function ($subUnit) {
+                $subUnit['programs'] = array_values(array_map(function ($prog) {
+                    $prog['kegiatans'] = array_values(array_map(function ($keg) {
+                        $keg['sub_kegiatans'] = array_values($keg['sub_kegiatans']);
+
+                        return $keg;
+                    }, $prog['kegiatans']));
+
+                    return $prog;
+                }, $subUnit['programs']));
+
+                return $subUnit;
+            }, $skpd['sub_units']));
+
+            return $skpd;
+        }, $tree));
+
+        $totalPaguKeseluruhan = array_sum(array_column($result, 'total_pagu'));
+        $totalPaketKeseluruhan = array_sum(array_column($result, 'total_paket'));
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'summary' => [
+                    'total_skpd' => count($result),
+                    'total_paket' => $totalPaketKeseluruhan,
+                    'total_pagu' => round($totalPaguKeseluruhan, 2),
+                ],
+                'tree' => $result,
             ],
         ]);
     }
