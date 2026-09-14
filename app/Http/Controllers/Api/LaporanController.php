@@ -94,6 +94,7 @@ class LaporanController extends Controller
                 DB::raw('COUNT(DISTINCT i.id) as paket'),
                 DB::raw('COALESCE(SUM(a.pagu), 0) as pagu_paket'),
             ])
+            ->when($tahun, fn($q) => $q->where("i.tahun", $tahun))
             ->groupBy([
                 DB::raw('COALESCE(su.parent_kode_skpd, su.kode_skpd)'),
                 'i.kode_skpd', 'i.kode_program',

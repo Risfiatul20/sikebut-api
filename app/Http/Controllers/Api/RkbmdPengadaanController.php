@@ -20,6 +20,21 @@ class RkbmdPengadaanController extends Controller
     {
         $query = RkbmdPengadaan::query();
 
+        // Scoping SKPD berdasarkan role user login
+        $user = $request->user();
+        if ($user && $user->kode_skpd) {
+            $userRole = strtolower(trim((string) $user->role));
+            if (in_array($userRole, ['kepala opd', 'kepala sub unit', 'ppk'], true)) {
+                $skpdCodes = RefSkpd::query()
+                    ->where('kode_skpd', $user->kode_skpd)
+                    ->orWhere('parent_kode_skpd', $user->kode_skpd)
+                    ->pluck('kode_skpd')
+                    ->all();
+
+                $query->whereIn('kode_skpd', ! empty($skpdCodes) ? $skpdCodes : [$user->kode_skpd]);
+            }
+        }
+
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('nama_barang', 'ilike', "%{$search}%")
