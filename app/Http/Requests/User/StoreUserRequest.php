@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\User;
 
+use App\Models\User;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -27,7 +28,7 @@ class StoreUserRequest extends FormRequest
             'nama' => ['required', 'string', 'max:255'],
             'username' => ['required', 'string', 'max:255', Rule::unique('pgsql.dev.users', 'username')],
             'password' => ['required', 'string', 'min:6', 'max:255'],
-            'role' => ['required', 'string', 'max:50'],
+            'role' => ['required', 'string', 'max:50', Rule::in(User::ROLES)],
             'kode_skpd' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_skpd', 'kode_skpd')],
             'info' => ['nullable', 'array'],
             'info.nip' => ['nullable', 'string', 'max:50'],

@@ -32,7 +32,7 @@ class UpdateUserRequest extends FormRequest
             'nama' => ['sometimes', 'required', 'string', 'max:255'],
             'username' => ['sometimes', 'required', 'string', 'max:255', Rule::unique('pgsql.dev.users', 'username')->ignore($userId)],
             'password' => ['nullable', 'string', 'min:6', 'max:255'],
-            'role' => ['sometimes', 'required', 'string', 'max:50'],
+            'role' => ['sometimes', 'required', 'string', 'max:50', Rule::in(User::ROLES)],
             'kode_skpd' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_skpd', 'kode_skpd')],
             'info' => ['nullable', 'array'],
             'info.nip' => ['nullable', 'string', 'max:50'],

@@ -86,6 +86,10 @@ class UserController extends Controller
     {
         $validated = $request->validated();
 
+        // Cegah pembuatan akun dengan peran di luar kewenangan aktor.
+        $this->ensureCanAssignRole($request, $validated['role'] ?? null);
+        $this->ensureSkpdWithinScope($request, $validated['kode_skpd'] ?? null);
+
         $userData = [
             'nama' => $validated['nama'],
             'username' => $validated['username'],
@@ -116,8 +120,10 @@ class UserController extends Controller
     /**
      * Display the specified user.
      */
-    public function show(User $user): JsonResponse
+    public function show(Request $request, User $user): JsonResponse
     {
+        $this->ensureTargetWithinScope($request, $user);
+
         $user->load(['skpd', 'subKegiatan.kegiatan.program.bidangUrusan']);
 
         return response()->json([
@@ -131,6 +137,18 @@ class UserController extends Controller
     public function update(UpdateUserRequest $request, User $user): JsonResponse
     {
         $validated = $request->validated();
+
+        $this->ensureTargetWithinScope($request, $user);
+
+        // Peran hanya diperiksa bila benar-benar DIUBAH — supaya mengubah data
+        // akun lama (mis. `operator`) tidak ikut ditolak.
+        if (isset($validated['role']) && strcasecmp((string) $validated['role'], (string) $user->role) !== 0) {
+            $this->ensureCanAssignRole($request, $validated['role']);
+        }
+
+        if (array_key_exists('kode_skpd', $validated)) {
+            $this->ensureSkpdWithinScope($request, $validated['kode_skpd']);
+        }
 
         $userData = [];
         if (isset($validated['nama'])) {
@@ -174,8 +192,10 @@ class UserController extends Controller
     /**
      * Remove the specified user.
      */
-    public function destroy(User $user): JsonResponse
+    public function destroy(Request $request, User $user): JsonResponse
     {
+        $this->ensureTargetWithinScope($request, $user);
+
         DB::transaction(function () use ($user) {
             // Bersihkan data turunan yang berpotensi memblokir hapus (defense-in-depth).
             // dev.identifikasi_kebutuhan & dev.notifications ikut terhapus via FK ON DELETE CASCADE.
@@ -187,5 +207,93 @@ class UserController extends Controller
         return response()->json([
             'message' => 'User deleted successfully',
         ]);
+    }
+
+    /**
+     * Pastikan aktor berwenang menetapkan peran tujuan.
+     *
+     * Cerminan `canCreateRole` di `sikebut-app/lib/permissions.ts`:
+     * Admin bebas; Kepala OPD hanya Kepala Sub Unit; Kepala Sub Unit hanya PPK.
+     */
+    private function ensureCanAssignRole(Request $request, ?string $targetRole): void
+    {
+        if ($targetRole === null || trim($targetRole) === '') {
+            return;
+        }
+
+        $actorRole = strtolower(trim((string) $request->user()?->role));
+
+        if ($actorRole === 'admin') {
+            return;
+        }
+
+        $allowed = array_map('strtolower', User::CREATABLE_ROLES[$actorRole] ?? []);
+
+        if (! in_array(strtolower(trim($targetRole)), $allowed, true)) {
+            abort(403, 'Akses ditolak. Anda tidak berwenang menetapkan peran tersebut.');
+        }
+    }
+
+    /**
+     * Pastikan akun tujuan berada di wilayah kewenangan aktor
+     * (OPD induk + seluruh sub unit di bawahnya — sama dengan penyaringan di `index`).
+     */
+    private function ensureTargetWithinScope(Request $request, User $target): void
+    {
+        $actor = $request->user();
+
+        if (! $actor) {
+            abort(401);
+        }
+
+        $actorRole = strtolower(trim((string) $actor->role));
+
+        if ($actorRole !== 'kepala opd' && $actorRole !== 'kepala sub unit') {
+            return; // Admin tidak dibatasi.
+        }
+
+        if (! in_array($target->kode_skpd, $this->scopedSkpdCodes($request), true)) {
+            abort(403, 'Akses ditolak. Akun ini berada di luar kewenangan unit kerja Anda.');
+        }
+    }
+
+    /**
+     * Pastikan kode SKPD yang akan dipakai (saat membuat/mengubah akun)
+     * masih dalam wilayah kewenangan aktor.
+     */
+    private function ensureSkpdWithinScope(Request $request, ?string $kodeSkpd): void
+    {
+        if ($kodeSkpd === null || trim($kodeSkpd) === '') {
+            return;
+        }
+
+        $actorRole = strtolower(trim((string) $request->user()?->role));
+
+        if ($actorRole !== 'kepala opd' && $actorRole !== 'kepala sub unit') {
+            return;
+        }
+
+        if (! in_array($kodeSkpd, $this->scopedSkpdCodes($request), true)) {
+            abort(403, 'Akses ditolak. SKPD tersebut berada di luar kewenangan unit kerja Anda.');
+        }
+    }
+
+    /**
+     * Daftar kode SKPD yang boleh disentuh aktor: SKPD-nya sendiri + sub unit di bawahnya.
+     *
+     * @return list<string>
+     */
+    private function scopedSkpdCodes(Request $request): array
+    {
+        $actor = $request->user();
+        $kodeSkpd = $actor?->kode_skpd;
+
+        $codes = RefSkpd::query()
+            ->where('kode_skpd', $kodeSkpd)
+            ->orWhere('parent_kode_skpd', $kodeSkpd)
+            ->pluck('kode_skpd')
+            ->all();
+
+        return array_values(array_filter(array_merge($codes, [$kodeSkpd])));
     }
 }

@@ -32,26 +32,36 @@ Route::prefix('v1')->group(function () {
     Route::post('wa-gateway/callback', [WaGatewayController::class, 'callback']);
 
     Route::middleware('auth:sanctum')->group(function () {
-        Route::get('wa-gateway', [WaGatewayController::class, 'index']);
-        Route::post('wa-gateway/devices', [WaGatewayController::class, 'store']);
-        Route::get('wa-gateway/devices/{deviceId}/qr', [WaGatewayController::class, 'qr']);
-        Route::post('wa-gateway/devices/{deviceId}/logout', [WaGatewayController::class, 'logout']);
-        Route::post('wa-gateway/devices/{deviceId}/priority', [WaGatewayController::class, 'setPriority']);
-        Route::delete('wa-gateway/devices/{deviceId}', [WaGatewayController::class, 'destroy']);
-        Route::post('wa-gateway/test-send', [WaGatewayController::class, 'testSend']);
-        Route::get('wa-gateway/messages', [WaGatewayController::class, 'messages']);
+        // WhatsApp Gateway — hanya Administrator (cerminan menu sidebar).
+        Route::middleware('role:Admin')->group(function () {
+            Route::get('wa-gateway', [WaGatewayController::class, 'index']);
+            Route::post('wa-gateway/devices', [WaGatewayController::class, 'store']);
+            Route::get('wa-gateway/devices/{deviceId}/qr', [WaGatewayController::class, 'qr']);
+            Route::post('wa-gateway/devices/{deviceId}/logout', [WaGatewayController::class, 'logout']);
+            Route::post('wa-gateway/devices/{deviceId}/priority', [WaGatewayController::class, 'setPriority']);
+            Route::delete('wa-gateway/devices/{deviceId}', [WaGatewayController::class, 'destroy']);
+            Route::post('wa-gateway/test-send', [WaGatewayController::class, 'testSend']);
+            Route::get('wa-gateway/messages', [WaGatewayController::class, 'messages']);
+        });
 
-        Route::get('user-sub-kegiatan', [UserSubKegiatanController::class, 'index']);
-        Route::get('user-sub-kegiatan/ppk-users', [UserSubKegiatanController::class, 'ppkUsers']);
-        Route::post('user-sub-kegiatan', [UserSubKegiatanController::class, 'store']);
-        Route::delete('user-sub-kegiatan/{id}', [UserSubKegiatanController::class, 'destroy'])->whereNumber('id');
+        // Mapping PPK <-> Sub Kegiatan — bagian dari Manajemen Pengguna (izin `user:manage`).
+        Route::middleware('role:Admin,Kepala OPD,Kepala Sub Unit')->group(function () {
+            Route::get('user-sub-kegiatan', [UserSubKegiatanController::class, 'index']);
+            Route::get('user-sub-kegiatan/ppk-users', [UserSubKegiatanController::class, 'ppkUsers']);
+            Route::post('user-sub-kegiatan', [UserSubKegiatanController::class, 'store']);
+            Route::delete('user-sub-kegiatan/{id}', [UserSubKegiatanController::class, 'destroy'])->whereNumber('id');
+        });
         Route::get('dashboard/summary', [DashboardController::class, 'summary']);
         Route::get('dashboard/keterisian-ppk', [DashboardController::class, 'keterisianPpk']);
         Route::get('notifications', [NotificationController::class, 'index']);
         Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount']);
         Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
         Route::post('notifications/{id}/read', [NotificationController::class, 'markRead'])->whereNumber('id');
-        Route::apiResource('users', UserController::class);
+        // Manajemen Pengguna — pemegang izin `user:manage`; menghapus akun hanya Administrator (`user:delete`).
+        Route::middleware('role:Admin,Kepala OPD,Kepala Sub Unit')->group(function () {
+            Route::apiResource('users', UserController::class)->except(['destroy']);
+            Route::delete('users/{user}', [UserController::class, 'destroy'])->middleware('role:Admin');
+        });
         Route::get('ref-skpd', [RefSkpdController::class, 'index']);
         Route::get('ref-akun/view', [RefAkunController::class, 'view'])->middleware('cache.client:300');
         Route::get('ref-akun', [RefAkunController::class, 'index']);
@@ -102,7 +112,9 @@ Route::prefix('v1')->group(function () {
         Route::prefix('import')->group(function () {
             Route::post('rkbmd-pengadaan', [ImportController::class, 'importRkbmdPengadaan']);
             Route::post('rkbmd-pemeliharaan', [ImportController::class, 'importRkbmdPemeliharaan']);
-            Route::post('sipd-penetapan-apbd', [ImportController::class, 'importSipdPenetapanApbd']);
+            // Impor SIPD APBD menimpa data referensi global — hanya Administrator
+            // (cerminan pembatasan pada `app/api/sipd/import/route.ts` di frontend).
+            Route::post('sipd-penetapan-apbd', [ImportController::class, 'importSipdPenetapanApbd'])->middleware('role:Admin');
             Route::get('status/{id}', [ImportController::class, 'checkStatus']);
         });
     });

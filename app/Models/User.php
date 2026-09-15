@@ -16,6 +16,27 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
+    /**
+     * Daftar peran yang dikenal sistem.
+     *
+     * Cerminan `Role` di `sikebut-app/lib/permissions.ts`, ditambah `operator`
+     * yang sudah ada di basis data (akun lama tetap bisa diubah tanpa error validasi).
+     *
+     * @var list<string>
+     */
+    public const ROLES = ['Admin', 'Kepala OPD', 'Kepala Sub Unit', 'PPK', 'Verifikator', 'operator'];
+
+    /**
+     * Hierarki pembuatan akun (poin 1-3 docs/alur.md) — cerminan `CREATABLE_ROLES`
+     * di `sikebut-app/lib/permissions.ts`. Kunci sudah dinormalkan ke huruf kecil.
+     *
+     * @var array<string, list<string>>
+     */
+    public const CREATABLE_ROLES = [
+        'kepala opd' => ['kepala sub unit'],
+        'kepala sub unit' => ['ppk'],
+    ];
+
     protected $table = 'dev.users';
 
     public $timestamps = false;
