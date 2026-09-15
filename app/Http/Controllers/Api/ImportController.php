@@ -3,211 +3,111 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Imports\RkbmdPemeliharaanImport;
-use App\Imports\RkbmdPengadaanImport;
-use App\Imports\SipdPenetapanApbdImport;
+use App\Jobs\RunImportJob;
 use DB;
 use Illuminate\Http\Request;
-use Maatwebsite\Excel\Facades\Excel;
 use Str;
 
+/**
+ * Impor berkas besar (SIPD Penetapan APBD & RKBMD) TIDAK dikerjakan di dalam
+ * request ini, melainkan dikirim ke antrean lalu dieksekusi worker.
+ *
+ * Alasannya: impor berkas SIPD asli (39.236 baris) butuh ~7-8 menit. Kalau
+ * dikerjakan sinkron, server PHP yang melayani satu permintaan sekaligus ikut
+ * membeku → permintaan lain gagal → pengguna melihat
+ * "Backend tidak dapat dijangkau".
+ *
+ * Jalankan worker: php artisan queue:work database --timeout=3600
+ */
 class ImportController extends Controller
 {
+    /** Batas ukuran unggahan (KB) per jenis impor. */
+    private const MAKS_RKBMD_KB = 20480; // 20 MB
+
+    private const MAKS_SIPD_KB = 51200; // 50 MB
+
     public function importRkbmdPengadaan(Request $request)
     {
-        // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
-        @ini_set('memory_limit', '1024M');
-        // Impor ribuan–puluhan ribu baris bisa memakan beberapa menit; di produksi
-        // php-fpm batas bawaan (30–60 s) akan memutus request di tengah jalan.
-        @set_time_limit(0);
+        $this->validasiBerkas($request, self::MAKS_RKBMD_KB);
 
-        $request->validate([
-            // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
-            // konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
-            'file' => ['required', 'file', 'max:20480', function ($attribute, $value, $fail) {
-                $ext = strtolower($value->getClientOriginalExtension());
-                if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
-                    $fail('Format file harus .xlsx, .xls, atau .csv.');
-                }
-            }],
-        ]);
-
-        $importId = (string) Str::uuid();
-        $file = $request->file('file');
-        $filePath = $file->store('imports');
-
-        // 1. Catat status awal ke database
-        DB::table('dev.import_statuses')->insert([
-            'id' => $importId,
-            'user_id' => auth()->id() ?? null,
-            'file_name' => 'rkbmd_pengadaan',
-            'status' => 'processing',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        // 2. Jalankan impor SECARA SINKRON (tanpa worker queue) agar pasti selesai.
-        //    Catatan: class import TIDAK mengimplementasikan ShouldQueue, sehingga
-        //    Maatwebsite memproses chunk langsung di request ini (lihat ChunkReader).
-        //    Setelah selesai, event AfterImport pada job otomatis menandai status 'completed'.
-        try {
-            Excel::import(new RkbmdPengadaanImport($importId), $filePath);
-        } catch (\Throwable $e) {
-            DB::table('dev.import_statuses')
-                ->where('id', $importId)
-                ->update([
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage(),
-                    'updated_at' => now(),
-                ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Impor gagal: '.$e->getMessage(),
-                'import_id' => $importId,
-            ], 422);
-        }
-
-        // 3. Kembalikan ID Tracking ke Next.js (status sudah 'completed')
-        return response()->json([
-            'success' => true,
-            'message' => 'File pengadaan berhasil diimpor ke database.',
-            'import_id' => $importId,
-        ], 200);
+        return $this->antrikan($request, 'rkbmd_pengadaan');
     }
 
     public function importRkbmdPemeliharaan(Request $request)
     {
-        // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
-        @ini_set('memory_limit', '1024M');
-        // Impor ribuan–puluhan ribu baris bisa memakan beberapa menit; di produksi
-        // php-fpm batas bawaan (30–60 s) akan memutus request di tengah jalan.
-        @set_time_limit(0);
+        $this->validasiBerkas($request, self::MAKS_RKBMD_KB);
 
-        $request->validate([
-            // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
-            // konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
-            'file' => ['required', 'file', 'max:20480', function ($attribute, $value, $fail) {
-                $ext = strtolower($value->getClientOriginalExtension());
-                if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
-                    $fail('Format file harus .xlsx, .xls, atau .csv.');
-                }
-            }],
-        ]);
-
-        $importId = (string) Str::uuid();
-        $file = $request->file('file');
-        $filePath = $file->store('imports');
-
-        // 1. Catat status awal ke database
-        DB::table('dev.import_statuses')->insert([
-            'id' => $importId,
-            'user_id' => auth()->id() ?? null,
-            'file_name' => 'rkbmd_pemeliharaan',
-            'status' => 'processing',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        // 2. Jalankan impor SECARA SINKRON (tanpa worker queue) agar pasti selesai.
-        //    Catatan: class import TIDAK mengimplementasikan ShouldQueue, sehingga
-        //    Maatwebsite memproses chunk langsung di request ini (lihat ChunkReader).
-        //    Setelah selesai, event AfterImport pada job otomatis menandai status 'completed'.
-        try {
-            Excel::import(new RkbmdPemeliharaanImport($importId), $filePath);
-        } catch (\Throwable $e) {
-            DB::table('dev.import_statuses')
-                ->where('id', $importId)
-                ->update([
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage(),
-                    'updated_at' => now(),
-                ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Impor gagal: '.$e->getMessage(),
-                'import_id' => $importId,
-            ], 422);
-        }
-
-        // 3. Kembalikan ID Tracking ke Next.js (status sudah 'completed')
-        return response()->json([
-            'success' => true,
-            'message' => 'File pemeliharaan berhasil diimpor ke database.',
-            'import_id' => $importId,
-        ], 200);
+        return $this->antrikan($request, 'rkbmd_pemeliharaan');
     }
 
     public function importSipdPenetapanApbd(Request $request)
     {
-        // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
-        @ini_set('memory_limit', '1024M');
-        // Impor ribuan–puluhan ribu baris bisa memakan beberapa menit; di produksi
-        // php-fpm batas bawaan (30–60 s) akan memutus request di tengah jalan.
-        @set_time_limit(0);
-
-        $request->validate([
-            // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
-            // konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
-            'file' => ['required', 'file', 'max:51200', function ($attribute, $value, $fail) {
-                $ext = strtolower($value->getClientOriginalExtension());
-                if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
-                    $fail('Format file harus .xlsx, .xls, atau .csv.');
-                }
-            }],
+        $this->validasiBerkas($request, self::MAKS_SIPD_KB, [
             'tahun' => ['nullable', 'integer'],
             'versi' => ['nullable', 'string', 'max:100'],
             'nama_versi' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $importId = (string) Str::uuid();
-        $file = $request->file('file');
-        $filePath = $file->store('imports');
+        return $this->antrikan($request, 'sipd_penetapan_apbd');
+    }
 
-        // 1. Catat status awal ke database
+    /**
+     * Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
+     * konsisten untuk CSV (kadang terdeteksi text/plain → ditolak mimes:csv).
+     */
+    private function validasiBerkas(Request $request, int $maksKb, array $aturanTambahan = []): void
+    {
+        $request->validate(array_merge([
+            'file' => ['required', 'file', "max:{$maksKb}", function ($attribute, $value, $fail) {
+                $ext = strtolower($value->getClientOriginalExtension());
+                if (! in_array($ext, ['xlsx', 'xls', 'csv'])) {
+                    $fail('Format file harus .xlsx, .xls, atau .csv.');
+                }
+            }],
+        ], $aturanTambahan));
+    }
+
+    /**
+     * Simpan berkas, catat status awal, lalu kirim ke antrean.
+     *
+     * Balasan 202 (Accepted) dikirim SEKETIKA — pekerjaan beratnya ada di worker.
+     * Status dipantau lewat GET /api/v1/import/status/{id}:
+     * `processing` → `completed` / `failed`.
+     */
+    private function antrikan(Request $request, string $jenis)
+    {
+        $importId = (string) Str::uuid();
+
+        // Simpan dengan EKSTENSI ASLI kiriman pengguna (uuid.csv / uuid.xlsx).
+        // `store('imports')` menebak ekstensi dari deteksi MIME, dan untuk berkas
+        // CSV hasil ekspor SIPD tebakannya bisa menjadi `.txt` — pembaca Excel
+        // (Maatwebsite/PhpSpreadsheet) menentukan tipe reader dari ekstensi berkas,
+        // jadi ekstensi yang salah adalah sumber kegagalan impor yang tidak perlu.
+        $ext = strtolower($request->file('file')->getClientOriginalExtension());
+        $filePath = $request->file('file')->storeAs('imports', "{$importId}.{$ext}");
+
         DB::table('dev.import_statuses')->insert([
             'id' => $importId,
             'user_id' => auth()->id() ?? null,
-            'file_name' => 'sipd_penetapan_apbd',
+            'file_name' => $jenis,
             'status' => 'processing',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        // 2. Jalankan impor SECARA SINKRON (tanpa worker queue) agar pasti selesai.
-        //    Setelah selesai, event AfterImport pada job otomatis menandai status 'completed'.
-        try {
-            Excel::import(
-                new SipdPenetapanApbdImport(
-                    $importId,
-                    $request->integer('tahun') ?: null,
-                    $request->input('versi') ?: ($request->string('nama_versi')->toString() ?: null)
-                ),
-                $filePath
-            );
-        } catch (\Throwable $e) {
-            DB::table('dev.import_statuses')
-                ->where('id', $importId)
-                ->update([
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage(),
-                    'updated_at' => now(),
-                ]);
+        RunImportJob::dispatch(
+            $importId,
+            $jenis,
+            $filePath,
+            $request->integer('tahun') ?: null,
+            $request->input('versi') ?: ($request->string('nama_versi')->toString() ?: null),
+        );
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Impor gagal: '.$e->getMessage(),
-                'import_id' => $importId,
-            ], 422);
-        }
-
-        // 3. Kembalikan ID Tracking ke Next.js (status sudah 'completed')
         return response()->json([
             'success' => true,
-            'message' => 'File penetapan APBD berhasil diimpor ke database.',
+            'message' => 'Berkas diterima dan sedang diproses di latar belakang.',
             'import_id' => $importId,
-        ], 200);
+        ], 202);
     }
 
     public function checkStatus($id)

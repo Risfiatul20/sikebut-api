@@ -87,6 +87,63 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
         return $nama !== '' ? $nama : ($kode !== null && $kode !== '' ? $kode : '(nama kosong)');
     }
 
+    /**
+     * Pilih nama yang lebih baik antara nama dari baris yang sedang dibaca dan
+     * nama yang sudah terkumpul untuk kode yang sama. Kode yang sama bisa muncul
+     * berkali-kali dalam satu berkas, dan sebagian barisnya tidak memuat nama.
+     * Tanpa ini, baris tanpa nama yang datang terakhir akan MENGHAPUS nama yang
+     * sudah benar (daftar dikunci per kode, jadi yang terakhir menang).
+     */
+    protected function namaTerbaik(?string $namaBaru, ?string $namaLama): ?string
+    {
+        $namaBaru = $namaBaru === null ? '' : trim($namaBaru);
+
+        return $namaBaru !== '' ? $namaBaru : $namaLama;
+    }
+
+    /**
+     * Isi nama yang masih kosong dengan nama yang SUDAH tersimpan di database,
+     * dan hanya kalau database juga tidak punya, pakai kode sebagai cadangan.
+     *
+     * Dipanggil tepat sebelum upsert: kolom nama bertipe NOT NULL, jadi nilainya
+     * tidak boleh kosong, tetapi nama yang sudah benar juga tidak boleh tertimpa
+     * kode hanya karena berkas tidak memuat nama pada baris tertentu.
+     * Kueri tambahan hanya dijalankan bila memang ada nama yang kosong.
+     *
+     * @param  array<string, array<string, mixed>>  $list
+     * @return array<string, array<string, mixed>>
+     */
+    protected function lengkapiNamaKosong(array $list, string $tabel, string $kolomKunci, string $kolomNama): array
+    {
+        // Penting: kunci array PHP yang bernilai numerik otomatis menjadi integer
+        // ("1" → 1). Kalau dikirim apa adanya, Postgres menolak
+        // `character varying = integer` (SQLSTATE[42883]). Jadi dipaksa string.
+        $kodeKosong = [];
+        foreach ($list as $kode => $row) {
+            if (trim((string) ($row[$kolomNama] ?? '')) === '') {
+                $kodeKosong[] = (string) $kode;
+            }
+        }
+
+        if ($kodeKosong === []) {
+            return $list;
+        }
+
+        $namaTersimpan = DB::table($tabel)
+            ->whereIn($kolomKunci, $kodeKosong)
+            ->pluck($kolomNama, $kolomKunci);
+
+        foreach ($kodeKosong as $kode) {
+            $nama = $namaTersimpan[$kode] ?? null;
+            $list[$kode][$kolomNama] = $this->namaAtauCadangan(
+                $nama === null ? null : (string) $nama,
+                (string) $kode
+            );
+        }
+
+        return $list;
+    }
+
     public function chunkSize(): int
     {
         // 1.000 (bukan 500): separuh jumlah chunk → separuh perjalanan bolak-balik
@@ -161,14 +218,14 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
             $namaStandar = $this->cleanString($row['nama_standar_harga'] ?? null);
 
             if ($kodeUrusan) {
-                $urusanList[$kodeUrusan] = ['kode_urusan' => $kodeUrusan, 'nama_urusan' => $this->namaAtauCadangan($namaUrusan, $kodeUrusan)];
+                $urusanList[$kodeUrusan] = ['kode_urusan' => $kodeUrusan, 'nama_urusan' => $this->namaTerbaik($namaUrusan, $urusanList[$kodeUrusan]['nama_urusan'] ?? null)];
             }
 
             if ($kodeBidang) {
                 $bidangList[$kodeBidang] = [
                     'kode_bidang_urusan' => $kodeBidang,
                     'kode_urusan' => $kodeUrusan,
-                    'nama_bidang_urusan' => $this->namaAtauCadangan($namaBidang, $kodeBidang),
+                    'nama_bidang_urusan' => $this->namaTerbaik($namaBidang, $bidangList[$kodeBidang]['nama_bidang_urusan'] ?? null),
                 ];
             }
 
@@ -176,7 +233,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 $programList[$kodeProgram] = [
                     'kode_program' => $kodeProgram,
                     'kode_bidang_urusan' => $kodeBidang,
-                    'nama_program' => $this->namaAtauCadangan($namaProgram, $kodeProgram),
+                    'nama_program' => $this->namaTerbaik($namaProgram, $programList[$kodeProgram]['nama_program'] ?? null),
                 ];
             }
 
@@ -184,7 +241,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 $kegiatanList[$kodeKegiatan] = [
                     'kode_kegiatan' => $kodeKegiatan,
                     'kode_program' => $kodeProgram,
-                    'nama_kegiatan' => $this->namaAtauCadangan($namaKegiatan, $kodeKegiatan),
+                    'nama_kegiatan' => $this->namaTerbaik($namaKegiatan, $kegiatanList[$kodeKegiatan]['nama_kegiatan'] ?? null),
                 ];
             }
 
@@ -192,14 +249,14 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 $subKegiatanList[$kodeSubKegiatan] = [
                     'kode_sub_kegiatan' => $kodeSubKegiatan,
                     'kode_kegiatan' => $kodeKegiatan,
-                    'nama_sub_kegiatan' => $this->namaAtauCadangan($namaSubKegiatan, $kodeSubKegiatan),
+                    'nama_sub_kegiatan' => $this->namaTerbaik($namaSubKegiatan, $subKegiatanList[$kodeSubKegiatan]['nama_sub_kegiatan'] ?? null),
                 ];
             }
 
             if ($kodeSkpd) {
                 $skpdIndukList[$kodeSkpd] = [
                     'kode_skpd' => $kodeSkpd,
-                    'nama_skpd' => $this->namaAtauCadangan($namaSkpd, $kodeSkpd),
+                    'nama_skpd' => $this->namaTerbaik($namaSkpd, $skpdIndukList[$kodeSkpd]['nama_skpd'] ?? null),
                     'parent_kode_skpd' => null,
                 ];
             }
@@ -207,7 +264,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
             if ($kodeSubUnit) {
                 $skpdSubUnitList[$kodeSubUnit] = [
                     'kode_skpd' => $kodeSubUnit,
-                    'nama_skpd' => $this->namaAtauCadangan($namaSubUnit ?: $namaSkpd, $kodeSubUnit),
+                    'nama_skpd' => $this->namaTerbaik($namaSubUnit ?: $namaSkpd, $skpdSubUnitList[$kodeSubUnit]['nama_skpd'] ?? null),
                     'parent_kode_skpd' => $kodeSkpd,
                 ];
             }
@@ -215,7 +272,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
             if ($kodeStandar) {
                 $standarHargaList[$kodeStandar] = [
                     'kode_standar_harga' => $kodeStandar,
-                    'nama_standar_harga' => $this->namaAtauCadangan($namaStandar, $kodeStandar),
+                    'nama_standar_harga' => $this->namaTerbaik($namaStandar, $standarHargaList[$kodeStandar]['nama_standar_harga'] ?? null),
                 ];
             }
 
@@ -241,6 +298,22 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 'created_at' => now(),
             ];
         }
+
+        // Nama pada tabel referensi bertipe NOT NULL, sedangkan berkas SIPD asli
+        // memang bisa memuat kode tanpa nama (berkas APBD 2026: 1.567 baris tanpa
+        // nama_standar_harga dan 32 baris tanpa nama_sub_kegiatan). Kalau dibiarkan
+        // null, upsert gagal SQLSTATE[23502]; kalau barisnya dilewati, muncul
+        // SQLSTATE[23503] karena sipd_penetapan_apbd ber-FK ke ref_skpd /
+        // ref_sub_kegiatan / ref_standar_harga. Jadi nama kosong diisi: pakai nama
+        // yang sudah tersimpan di database bila ada, terakhir pakai kode.
+        $urusanList = $this->lengkapiNamaKosong($urusanList, 'dev.ref_urusan', 'kode_urusan', 'nama_urusan');
+        $bidangList = $this->lengkapiNamaKosong($bidangList, 'dev.ref_bidang_urusan', 'kode_bidang_urusan', 'nama_bidang_urusan');
+        $programList = $this->lengkapiNamaKosong($programList, 'dev.ref_program', 'kode_program', 'nama_program');
+        $kegiatanList = $this->lengkapiNamaKosong($kegiatanList, 'dev.ref_kegiatan', 'kode_kegiatan', 'nama_kegiatan');
+        $subKegiatanList = $this->lengkapiNamaKosong($subKegiatanList, 'dev.ref_sub_kegiatan', 'kode_sub_kegiatan', 'nama_sub_kegiatan');
+        $skpdIndukList = $this->lengkapiNamaKosong($skpdIndukList, 'dev.ref_skpd', 'kode_skpd', 'nama_skpd');
+        $skpdSubUnitList = $this->lengkapiNamaKosong($skpdSubUnitList, 'dev.ref_skpd', 'kode_skpd', 'nama_skpd');
+        $standarHargaList = $this->lengkapiNamaKosong($standarHargaList, 'dev.ref_standar_harga', 'kode_standar_harga', 'nama_standar_harga');
 
         DB::transaction(function () use (
             $urusanList,

@@ -73,7 +73,11 @@ services:
                 "--backoff=30",
             ]
         stop_signal: SIGTERM
-        stop_grace_period: 60s
+        # 600s (bukan 60s): satu impor SIPD berkas asli (± 39 ribu baris) berjalan
+        # ± 8 menit sebagai SATU job. Dengan 60s, restart/deploy di tengah impor
+        # akan mematikan worker paksa dan impor itu gagal (job tidak mengulang,
+        # karena RunImportJob menetapkan $tries = 1).
+        stop_grace_period: 600s
         env_file: .env
         volumes:
             - storage:/var/www/storage
