@@ -40,7 +40,6 @@ services:
             - public:/var/www/public
             - storage:/var/www/storage
         networks:
-            - db-network
             - app-network
         deploy:
             resources:
@@ -61,12 +60,14 @@ services:
         image: sikebut-api:1.0.0
         container_name: sikebut-api-queue
         restart: unless-stopped
+        # Driver WAJIB sama dengan QUEUE_CONNECTION di .env (proyek ini: database).
+        # Memakai "redis" tanpa container Redis membuat worker gagal terus-menerus.
         command:
             [
                 "php",
                 "artisan",
                 "queue:work",
-                "redis",
+                "database",
                 "--tries=3",
                 "--max-time=3600",
                 "--backoff=30",
@@ -77,7 +78,6 @@ services:
         volumes:
             - storage:/var/www/storage
         networks:
-            - db-network
             - app-network
         deploy:
             resources:
@@ -92,16 +92,21 @@ services:
         command: ["php", "artisan", "schedule:work"]
         env_file: .env
         networks:
-            - db-network
+            - app-network
         deploy:
             resources:
                 limits: { cpus: "0.250", memory: 256M }
         logging: *default-logging
 
 networks:
-    db-network:
-        external: true
-        name: db-network
+    # Hanya app-network yang dibutuhkan: api, queue, scheduler, WA gateway, dan
+    # frontend saling terhubung di sini. Database SIKEBUT berada di HOST TERPISAH
+    # (lihat DB_HOST pada .env), jadi network khusus database TIDAK diperlukan —
+    # network `external` yang tidak ada akan membuat `docker compose up` GAGAL.
+    # Bila kelak PostgreSQL dijalankan di Docker yang sama, tambahkan lagi:
+    #   db-network:
+    #       external: true
+    #       name: db-network
     app-network:
         external: true
         name: app-network
