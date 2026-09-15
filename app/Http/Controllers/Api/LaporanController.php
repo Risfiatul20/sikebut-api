@@ -350,6 +350,24 @@ class LaporanController extends Controller
     }
 
     /**
+     * Rute GET /api/v1/laporan/penyedia — jembatan ke paketPerCara('Penyedia').
+     * Rute di routes/api.php memanggil metode ini; tanpa jembatan ini
+     * permintaan gagal 500 "Call to undefined method".
+     */
+    public function penyedia(Request $request): JsonResponse
+    {
+        return $this->paketPerCara($request, 'Penyedia');
+    }
+
+    /**
+     * Rute GET /api/v1/laporan/swakelola — jembatan ke paketPerCara('Swakelola').
+     */
+    public function swakelola(Request $request): JsonResponse
+    {
+        return $this->paketPerCara($request, 'Swakelola');
+    }
+
+    /**
      * Laporan paket per cara pengadaan (Penyedia / Swakelola) — agregat per SKPD
      * + daftar paket lengkap. Basis data asli identifikasi_kebutuhan.
      *
