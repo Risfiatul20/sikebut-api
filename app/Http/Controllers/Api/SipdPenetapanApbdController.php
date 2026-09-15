@@ -367,21 +367,31 @@ class SipdPenetapanApbdController extends Controller
      */
     public function versions(Request $request): JsonResponse
     {
+        // PENTING: kolom `versi` bertipe varchar(100) dan TIDAK selalu berisi angka —
+        // form impor mengizinkan pengguna mengisi LABEL bebas (mis. "Penetapan Perubahan
+        // APBD 2026"). Cast `versi::int` tanpa penjaga pernah membuat endpoint ini 500
+        // (SQLSTATE[22P02]: invalid input syntax for type integer). Karena itu:
+        //  - urutkan versi NUMERIK lebih dulu (terbesar), lalu label teks menurut impor terbaru;
+        //  - kirim `versi` sebagai STRING supaya label tetap utuh sampai ke frontend.
         $rows = DB::table('dev.sipd_penetapan_apbd')
-            ->selectRaw('versi, tahun, COUNT(*) as total_rincian, COALESCE(SUM(pagu), 0) as total_pagu')
+            ->selectRaw('versi, tahun, COUNT(*) as total_rincian, COALESCE(SUM(pagu), 0) as total_pagu, MAX(created_at) as last_import')
             ->groupBy('versi', 'tahun')
             ->orderBy('tahun', 'desc')
-            ->orderByRaw('versi::int DESC')
+            ->orderByRaw("CASE WHEN versi ~ '^[0-9]+$' THEN 0 ELSE 1 END")
+            ->orderByRaw("CASE WHEN versi ~ '^[0-9]+$' THEN versi::int END DESC NULLS LAST")
+            ->orderByRaw('last_import DESC NULLS LAST')
             ->get();
 
         return response()->json([
             'data' => $rows->map(fn ($r) => [
-                'versi' => (int) $r->versi,
-                'nama_versi' => 'Versi '.$r->versi.' - Penetapan APBD '.$r->tahun,
+                'versi' => (string) $r->versi,
+                'nama_versi' => preg_match('/^[0-9]+$/', (string) $r->versi)
+                    ? 'Versi '.$r->versi.' - Penetapan APBD '.$r->tahun
+                    : (string) $r->versi,
                 'tahun' => (int) $r->tahun,
                 'total_rincian' => (int) $r->total_rincian,
                 'total_pagu' => (float) $r->total_pagu,
-                'tanggal_impor' => null,
+                'tanggal_impor' => $r->last_import ? (string) $r->last_import : null,
                 'status' => 'Aktif',
             ])->values(),
         ]);
