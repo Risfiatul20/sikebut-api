@@ -441,3 +441,210 @@ CREATE TABLE IF NOT EXISTS dev.wa_messages (
 
 CREATE INDEX IF NOT EXISTS idx_wa_messages_status ON dev.wa_messages(status);
 CREATE INDEX IF NOT EXISTS idx_wa_messages_created ON dev.wa_messages(created_at DESC);
+
+-- ============================================================================
+-- TABEL MASTER KONDISI RKBMD (ditambahkan 2026-09-14)
+-- Sumber data: rekap RKBMD Biro PBJ (import tabel_kebutuhan).
+-- Dipakai oleh RkbmdPemeliharaanController untuk mengisi OTOMATIS kolom
+-- kondisi barang pada form Pemeliharaan:
+--   Baik          -> kondisidesember_b
+--   Rusak Ringan  -> kondisidesember_rr
+--   Rusak Berat   -> kondisidesember_rb
+-- Catatan: sebelumnya tabel ini hanya ada di database live (1.865 baris)
+-- dan belum tercatat di berkas skema ini, sehingga pemasangan ulang akan
+-- gagal pada endpoint kondisi pemeliharaan. Jangan dihapus.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS dev.rkbmd_kebutuhan (
+    id_kebutuhan bigint NOT NULL,
+    kode_fikasi character varying(50),
+    nama_barang text,
+    kondisidesember_b integer,
+    kondisidesember_rr integer,
+    kondisidesember_rb integer,
+    pengadaan_tahun_berjalan integer,
+    id_user bigint,
+    log timestamp without time zone,
+    id_status integer,
+    satuan character varying(50),
+    id_instansi bigint,
+    kebutuhanideal_jumlah integer,
+    kebutuhanideal_penjelasan text,
+    status_barang text,
+    periode integer,
+    modif_by bigint,
+    modif_date timestamp without time zone,
+    rencanapenghapusan_b integer,
+    rencanapenghapusan_rr integer,
+    rencanapenghapusan_rb integer,
+    rencanapemindahtanganan_b integer,
+    rencanapemindahtanganan_rr integer,
+    rencanapemindahtanganan_rb integer,
+    rencanapemanfaatan_b integer,
+    rencanapemanfaatan_rr integer,
+    rencanapemanfaatan_rb integer,
+    tdesember integer,
+    tpenghapusan integer,
+    tpemanfaatan integer,
+    tpemindahtanganan integer,
+    rencanapemeliharaan_b integer,
+    rencanapemeliharaan_rr integer,
+    rencanapemeliharaan_rb integer,
+    td integer,
+    kebutuhan_maksimum integer,
+    jumpengadaan integer,
+    jumpemeliharaan integer,
+    nm_status character varying(100),
+    nm_instansi character varying(255),
+    catatan_notulen text,
+    status_barang_ds integer,
+    status_barang_pp integer,
+    usulan character varying(50),
+    CONSTRAINT rkbmd_kebutuhan_pkey PRIMARY KEY (id_kebutuhan)
+);
+
+-- ============================================================================
+-- TABEL PELENGKAP (ditambahkan 2026-09-14)
+-- Sebelumnya kelima tabel ini HANYA ada di database live, tidak tercatat di
+-- berkas skema — akibatnya pemasangan ulang akan gagal pada: riwayat/timeline
+-- paket, notifikasi, status import, dan daftar RKBMD pengadaan/pemeliharaan.
+-- Jangan dihapus.
+-- ============================================================================
+CREATE SEQUENCE IF NOT EXISTS dev.identifikasi_kebutuhan_riwayat_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+CREATE SEQUENCE IF NOT EXISTS dev.notifications_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+CREATE TABLE IF NOT EXISTS dev.identifikasi_kebutuhan_riwayat (
+    id bigint NOT NULL DEFAULT nextval('dev.identifikasi_kebutuhan_riwayat_id_seq'::regclass),
+    identifikasi_kebutuhan_id bigint NOT NULL,
+    user_id bigint NOT NULL,
+    status_dari character varying(50),
+    status_ke character varying(50) NOT NULL,
+    catatan text,
+    created_at timestamp(0) without time zone DEFAULT now() NOT NULL,
+    CONSTRAINT identifikasi_kebutuhan_riwayat_pkey PRIMARY KEY (id),
+    CONSTRAINT identifikasi_kebutuhan_riwayat_identifikasi_kebutuhan_id_fkey FOREIGN KEY (identifikasi_kebutuhan_id) REFERENCES dev.identifikasi_kebutuhan(id) ON DELETE CASCADE,
+    CONSTRAINT identifikasi_kebutuhan_riwayat_user_id_fkey FOREIGN KEY (user_id) REFERENCES dev.users(id) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dev.import_statuses (
+    id uuid NOT NULL,
+    user_id bigint,
+    file_name character varying(255),
+    status character varying(50),
+    total_rows integer DEFAULT 0,
+    processed_rows integer DEFAULT 0,
+    error_message text,
+    created_at timestamp without time zone,
+    updated_at timestamp without time zone,
+    CONSTRAINT import_statuses_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS dev.notifications (
+    id bigint NOT NULL DEFAULT nextval('dev.notifications_id_seq'::regclass),
+    user_id bigint NOT NULL,
+    tipe character varying(50) NOT NULL,
+    pesan text NOT NULL,
+    identifikasi_kebutuhan_id bigint,
+    is_read boolean DEFAULT false NOT NULL,
+    created_at timestamp(0) without time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notifications_pkey PRIMARY KEY (id),
+    CONSTRAINT notifications_identifikasi_kebutuhan_id_fkey FOREIGN KEY (identifikasi_kebutuhan_id) REFERENCES dev.identifikasi_kebutuhan(id) ON DELETE CASCADE,
+    CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES dev.users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS dev.rkbmd_pengadaan (
+    id_pengadaan bigint NOT NULL,
+    id_instansi bigint,
+    id_renja bigint,
+    kode_fikasi character varying(50),
+    nama_barang text,
+    jumlah_barang integer,
+    satuan character varying(50),
+    jumlah_maksimum integer,
+    keterangan text,
+    id_status integer,
+    periode integer,
+    nm_status character varying(50),
+    cara_pemenuhan character varying(100),
+    target character varying(50),
+    nama_giat_nama_giat text,
+    nama_sub_giat_nama_sub_giat text,
+    id_kebutuhan bigint,
+    id_sub bigint,
+    nomekelatur character varying(50),
+    outputbaru character varying(50),
+    id_status_kebutuhan integer,
+    catatan_notulen text,
+    kode_program character varying(50),
+    kode_giat character varying(50),
+    kode_sub_giat character varying(50),
+    status_barang_ds integer,
+    status_barang_pp integer,
+    nama_program text,
+    nama_skpd text,
+    nama_sub_skpd text,
+    kode_skpd character varying(50),
+    kode_sub_skpd character varying(50),
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT rkbmd_pengadaan_pkey PRIMARY KEY (id_pengadaan)
+);
+
+CREATE TABLE IF NOT EXISTS dev.rkbmd_pemeliharaan (
+    id_pemeliharaan bigint NOT NULL,
+    id_instansi bigint,
+    id_renja bigint,
+    kode_fikasi character varying(50),
+    nama_barang text,
+    jumlah_barang integer,
+    status_barang integer,
+    satuan character varying(50),
+    kondisi_b integer,
+    kondisi_rr integer,
+    kondisi_rb integer,
+    nama_pemeliharaan text,
+    jumlah_pemeliharaan integer,
+    satuan_pemeliharaan character varying(50),
+    keterangan text,
+    id_status integer,
+    periode integer,
+    nm_status character varying(50),
+    target character varying(50),
+    nama_giat_nama_giat text,
+    id_kebutuhan bigint,
+    id_status_kebutuhan integer,
+    catatan_notulen text,
+    kode_program character varying(50),
+    kode_kegiatan character varying(50),
+    kode_sub_kegiatan character varying(50),
+    id_sub_update bigint,
+    nomekelatur_update character varying(50),
+    nama_sub_giat_nama_sub_giat text,
+    status_barang_ds integer,
+    status_barang_pp integer,
+    nama_program text,
+    nama_skpd text,
+    kode_skpd character varying(50),
+    nama_sub_skpd text,
+    kode_sub_skpd character varying(50),
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT rkbmd_pemeliharaan_pkey PRIMARY KEY (id_pemeliharaan)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ik_riwayat_paket ON dev.identifikasi_kebutuhan_riwayat USING btree (identifikasi_kebutuhan_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON dev.notifications USING btree (user_id, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rkbmd_id_instansi ON dev.rkbmd_pengadaan USING btree (id_instansi);
+CREATE INDEX IF NOT EXISTS idx_rkbmd_kode_skpd ON dev.rkbmd_pengadaan USING btree (kode_skpd);
+CREATE INDEX IF NOT EXISTS idx_rkbmd_periode ON dev.rkbmd_pengadaan USING btree (periode);
+CREATE INDEX IF NOT EXISTS idx_pemeliharaan_id_instansi ON dev.rkbmd_pemeliharaan USING btree (id_instansi);
+CREATE INDEX IF NOT EXISTS idx_pemeliharaan_kode_skpd ON dev.rkbmd_pemeliharaan USING btree (kode_skpd);
+CREATE INDEX IF NOT EXISTS idx_pemeliharaan_periode ON dev.rkbmd_pemeliharaan USING btree (periode);
