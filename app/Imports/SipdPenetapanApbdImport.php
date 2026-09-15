@@ -66,9 +66,32 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
         ];
     }
 
+    /**
+     * Kolom nama pada tabel referensi bersifat NOT NULL, tetapi berkas SIPD asli
+     * memang bisa memuat sel nama yang KOSONG (terbukti pada berkas APBD 2026:
+     * 1.567 baris tanpa `nama_standar_harga` dan 32 baris tanpa `nama_sub_kegiatan`).
+     *
+     * Sebelum ini, satu saja sel kosong membuat seluruh chunk gagal dengan
+     * SQLSTATE[23502] (not null violation). Karena setiap chunk punya transaksi
+     * sendiri, impor pun berhenti di tengah dan meninggalkan DATA SEPARUH.
+     *
+     * Baris referensi juga TIDAK boleh dilewati, sebab `sipd_penetapan_apbd`
+     * ber-FK ke ref_skpd / ref_sub_kegiatan / ref_standar_harga — kalau dilewati,
+     * muncul error berikutnya (SQLSTATE[23503] foreign key violation).
+     * Jadi nama kosong diisi cadangan, bukan dibuang.
+     */
+    protected function namaAtauCadangan(?string $nama, ?string $kode): string
+    {
+        $nama = $nama === null ? '' : trim($nama);
+
+        return $nama !== '' ? $nama : ($kode !== null && $kode !== '' ? $kode : '(nama kosong)');
+    }
+
     public function chunkSize(): int
     {
-        return 500;
+        // 1.000 (bukan 500): separuh jumlah chunk → separuh perjalanan bolak-balik
+        // ke database + lebih sedikit upsert referensi yang berulang.
+        return 1000;
     }
 
     protected function cleanString(mixed $val): ?string
@@ -138,14 +161,14 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
             $namaStandar = $this->cleanString($row['nama_standar_harga'] ?? null);
 
             if ($kodeUrusan) {
-                $urusanList[$kodeUrusan] = ['kode_urusan' => $kodeUrusan, 'nama_urusan' => $namaUrusan];
+                $urusanList[$kodeUrusan] = ['kode_urusan' => $kodeUrusan, 'nama_urusan' => $this->namaAtauCadangan($namaUrusan, $kodeUrusan)];
             }
 
             if ($kodeBidang) {
                 $bidangList[$kodeBidang] = [
                     'kode_bidang_urusan' => $kodeBidang,
                     'kode_urusan' => $kodeUrusan,
-                    'nama_bidang_urusan' => $namaBidang,
+                    'nama_bidang_urusan' => $this->namaAtauCadangan($namaBidang, $kodeBidang),
                 ];
             }
 
@@ -153,7 +176,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 $programList[$kodeProgram] = [
                     'kode_program' => $kodeProgram,
                     'kode_bidang_urusan' => $kodeBidang,
-                    'nama_program' => $namaProgram,
+                    'nama_program' => $this->namaAtauCadangan($namaProgram, $kodeProgram),
                 ];
             }
 
@@ -161,7 +184,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 $kegiatanList[$kodeKegiatan] = [
                     'kode_kegiatan' => $kodeKegiatan,
                     'kode_program' => $kodeProgram,
-                    'nama_kegiatan' => $namaKegiatan,
+                    'nama_kegiatan' => $this->namaAtauCadangan($namaKegiatan, $kodeKegiatan),
                 ];
             }
 
@@ -169,14 +192,14 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
                 $subKegiatanList[$kodeSubKegiatan] = [
                     'kode_sub_kegiatan' => $kodeSubKegiatan,
                     'kode_kegiatan' => $kodeKegiatan,
-                    'nama_sub_kegiatan' => $namaSubKegiatan,
+                    'nama_sub_kegiatan' => $this->namaAtauCadangan($namaSubKegiatan, $kodeSubKegiatan),
                 ];
             }
 
             if ($kodeSkpd) {
                 $skpdIndukList[$kodeSkpd] = [
                     'kode_skpd' => $kodeSkpd,
-                    'nama_skpd' => $namaSkpd,
+                    'nama_skpd' => $this->namaAtauCadangan($namaSkpd, $kodeSkpd),
                     'parent_kode_skpd' => null,
                 ];
             }
@@ -184,7 +207,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
             if ($kodeSubUnit) {
                 $skpdSubUnitList[$kodeSubUnit] = [
                     'kode_skpd' => $kodeSubUnit,
-                    'nama_skpd' => $namaSubUnit ?: $namaSkpd,
+                    'nama_skpd' => $this->namaAtauCadangan($namaSubUnit ?: $namaSkpd, $kodeSubUnit),
                     'parent_kode_skpd' => $kodeSkpd,
                 ];
             }
@@ -192,7 +215,7 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
             if ($kodeStandar) {
                 $standarHargaList[$kodeStandar] = [
                     'kode_standar_harga' => $kodeStandar,
-                    'nama_standar_harga' => $namaStandar,
+                    'nama_standar_harga' => $this->namaAtauCadangan($namaStandar, $kodeStandar),
                 ];
             }
 

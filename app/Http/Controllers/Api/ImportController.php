@@ -17,6 +17,9 @@ class ImportController extends Controller
     {
         // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
         @ini_set('memory_limit', '1024M');
+        // Impor ribuan–puluhan ribu baris bisa memakan beberapa menit; di produksi
+        // php-fpm batas bawaan (30–60 s) akan memutus request di tengah jalan.
+        @set_time_limit(0);
 
         $request->validate([
             // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
@@ -77,6 +80,9 @@ class ImportController extends Controller
     {
         // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
         @ini_set('memory_limit', '1024M');
+        // Impor ribuan–puluhan ribu baris bisa memakan beberapa menit; di produksi
+        // php-fpm batas bawaan (30–60 s) akan memutus request di tengah jalan.
+        @set_time_limit(0);
 
         $request->validate([
             // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
@@ -137,6 +143,9 @@ class ImportController extends Controller
     {
         // Amankan memory untuk file besar (PhpSpreadsheet membaca workbook ke memori).
         @ini_set('memory_limit', '1024M');
+        // Impor ribuan–puluhan ribu baris bisa memakan beberapa menit; di produksi
+        // php-fpm batas bawaan (30–60 s) akan memutus request di tengah jalan.
+        @set_time_limit(0);
 
         $request->validate([
             // Validasi berbasis EKSTENSI asli, bukan deteksi MIME (finfo) yang tidak
