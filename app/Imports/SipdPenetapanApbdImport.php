@@ -4,6 +4,7 @@ namespace App\Imports;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Maatwebsite\Excel\Concerns\WithEvents;
@@ -193,6 +194,26 @@ class SipdPenetapanApbdImport implements ToCollection, WithChunkReading, WithEve
         $transaksiList = [];
 
         foreach ($rows as $row) {
+            // PENJAGA TAHUN (wajib). Kolom `tahun` di database diambil dari kolom TAHUN
+            // DI DALAM BERKAS, bukan dari pilihan form. Kalau keduanya berbeda, data akan
+            // masuk ke tahun yang salah tanpa peringatan apa pun — persis kejadian
+            // 15 Sep 2026: berkas berisi 2027 diunggah dengan pilihan "Tahun 2026",
+            // sehingga data 2026 tetap kosong dan tahun 2027 malah berisi versi duplikat.
+            // Karena itu impor DIHENTIKAN sebelum satu baris pun ditulis/dihapus.
+            $tahunBaris = isset($row['tahun']) && is_numeric($row['tahun']) ? (int) $row['tahun'] : null;
+
+            if ($this->tahun !== null && $tahunBaris !== null && $tahunBaris !== $this->tahun) {
+                throw new InvalidArgumentException(sprintf(
+                    'Berkas ini berisi data tahun %d, sedangkan Tahun Anggaran yang dipilih di form adalah %d. '
+                    .'Impor dibatalkan supaya data tidak masuk ke tahun yang salah. '
+                    .'Perbaiki dulu: ubah pilihan Tahun Anggaran menjadi %d (sesuai isi berkas), atau unggah berkas yang berisi tahun %d.',
+                    $tahunBaris,
+                    $this->tahun,
+                    $tahunBaris,
+                    $this->tahun
+                ));
+            }
+
             $kodeUrusan = $this->cleanString($row['kode_urusan'] ?? null);
             $namaUrusan = $this->cleanString($row['nama_urusan'] ?? null);
 
