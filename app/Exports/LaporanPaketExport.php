@@ -34,9 +34,7 @@ class LaporanPaketExport implements FromArray, WithStyles
      * @param  array<string, mixed>  $data  hasil LaporanController::paketPerCara()
      * @param  string  $cara  'penyedia' | 'swakelola'
      */
-    public function __construct(private array $data, private string $cara)
-    {
-    }
+    public function __construct(private array $data, private string $cara) {}
 
     private function isPenyedia(): bool
     {

@@ -16,9 +16,7 @@ class BaPembahasanExport implements FromArray, WithHeadings, WithStyles
     /**
      * @param  array<string, mixed>  $data  hasil dari LaporanController::baPembahasan()
      */
-    public function __construct(private array $data)
-    {
-    }
+    public function __construct(private array $data) {}
 
     private function rantai(array $r): string
     {
@@ -29,6 +27,7 @@ class BaPembahasanExport implements FromArray, WithHeadings, WithStyles
             $r['nama_sub_kegiatan'] ?? '',
             $r['nama_paket'] ?? '',
         ]);
+
         return implode(' / ', $bagian);
     }
 
@@ -39,6 +38,7 @@ class BaPembahasanExport implements FromArray, WithHeadings, WithStyles
     private function angka(mixed $v): float|string
     {
         $f = (float) $v;
+
         return $f == 0 ? '0' : $f;
     }
 
@@ -58,6 +58,7 @@ class BaPembahasanExport implements FromArray, WithHeadings, WithStyles
                 (string) ($r['catatan_pembahasan'] ?? ''),
             ];
         }
+
         return $rows;
     }
 

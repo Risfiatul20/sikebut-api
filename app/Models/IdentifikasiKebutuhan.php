@@ -36,6 +36,7 @@ class IdentifikasiKebutuhan extends Model
         'form_data',
         'catatan_reviewer_detail',
         'catatan_reviewer',
+        'tahun',
     ];
 
     protected function casts(): array
@@ -52,6 +53,7 @@ class IdentifikasiKebutuhan extends Model
             'waktu_pelaksanaan_kontrak_akhir' => 'date',
             'waktu_pelaksanaan_pekerjaan_awal' => 'date',
             'waktu_pelaksanaan_pekerjaan_akhir' => 'date',
+            'tahun' => 'integer',
         ];
     }
 

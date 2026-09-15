@@ -22,9 +22,7 @@ class LaporanRekapExport implements FromArray, WithStyles
     /**
      * @param  array<string, mixed>  $data  hasil dari LaporanController::rekap()
      */
-    public function __construct(private array $data)
-    {
-    }
+    public function __construct(private array $data) {}
 
     /**
      * Baris 1-2 = judul & sub-judul laporan, baris 3-5 = header 3 baris

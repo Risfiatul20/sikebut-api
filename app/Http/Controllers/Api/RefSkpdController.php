@@ -29,6 +29,18 @@ class RefSkpdController extends Controller
 
         $query = RefSkpd::with('parent');
 
+        $currentUser = $request->user();
+        if ($currentUser) {
+            $userRole = strtolower(trim((string) $currentUser->role));
+
+            if ($userRole === 'kepala opd' || $userRole === 'kepala sub unit') {
+                $query->where(function ($q) use ($currentUser) {
+                    $q->where('kode_skpd', $currentUser->kode_skpd)
+                        ->orWhere('parent_kode_skpd', $currentUser->kode_skpd);
+                });
+            }
+        }
+
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('kode_skpd', 'ilike', "%{$search}%")

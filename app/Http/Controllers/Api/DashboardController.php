@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\RefSkpd;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -10,22 +11,64 @@ use Illuminate\Support\Facades\DB;
 class DashboardController extends Controller
 {
     /**
+     * Resolves SKPD codes according to current user's role:
+     * - Kepala OPD: own SKPD and all sub units beneath it.
+     * - Kepala Sub Unit / other scoped: only own SKPD.
+     * - Admin / Verifikator: null (unscoped).
+     *
+     * @return array<int, string>|null
+     */
+    private function resolveUserSkpdScope(?object $user): ?array
+    {
+        if (! $user || ! $user->kode_skpd) {
+            return null;
+        }
+
+        $role = strtolower(trim((string) $user->role));
+
+        if ($role === 'kepala opd') {
+            $codes = RefSkpd::query()
+                ->where('kode_skpd', $user->kode_skpd)
+                ->orWhere('parent_kode_skpd', $user->kode_skpd)
+                ->pluck('kode_skpd')
+                ->all();
+
+            return ! empty($codes) ? $codes : [$user->kode_skpd];
+        }
+
+        if (in_array($role, ['admin', 'verifikator'], true)) {
+            return null;
+        }
+
+        return [$user->kode_skpd];
+    }
+
+    /**
      * Ringkasan dashboard (data asli) — di-scope sesuai role & SKPD pengguna.
      *
      * - PPK: hanya paket pada sub kegiatan yang ter-mapping ke akunnya.
-     * - Kepala OPD / Kepala Sub Unit: hanya paket pada SKPD-nya.
+     * - Kepala OPD: paket pada SKPD induk dan sub unit di bawahnya.
+     * - Kepala Sub Unit: hanya paket pada SKPD-nya.
      * - Admin / Verifikator: semua paket.
      */
     public function summary(Request $request): JsonResponse
     {
         $user = $request->user();
+        $tahun = $request->query('tahun') ? (int) $request->query('tahun') : null;
+        $skpdScope = $this->resolveUserSkpdScope($user);
 
         $query = DB::table('dev.identifikasi_kebutuhan as ik')
-            ->leftJoin('dev.identifikasi_kebutuhan_anggaran as ika', 'ika.identifikasi_kebutuhan_id', '=', 'ik.id');
+            ->leftJoin('dev.identifikasi_kebutuhan_anggaran as ika', 'ika.identifikasi_kebutuhan_id', '=', 'ik.id')
+            ->leftJoin('dev.sipd_penetapan_apbd as spa', 'spa.id', '=', 'ika.id_sipd_penetapan');
 
-        // Scoping SKPD
-        if ($user?->kode_skpd) {
-            $query->where('ik.kode_skpd', $user->kode_skpd);
+        // Scoping SKPD berdasarkan role
+        if ($skpdScope !== null) {
+            $query->whereIn('ik.kode_skpd', $skpdScope);
+        }
+
+        // Filter Tahun Anggaran
+        if ($tahun) {
+            $query->where('ik.tahun', $tahun);
         }
 
         // Scoping PPK: hanya sub kegiatan ter-mapping
@@ -83,10 +126,15 @@ class DashboardController extends Controller
         // Paket terbaru (5) — scoping sama seperti agregat di atas.
         $terbaru = DB::table('dev.identifikasi_kebutuhan as ik')
             ->leftJoin('dev.users as u', 'u.id', '=', 'ik.user_id')
-            ->leftJoin('dev.ref_skpd as skpd', 'skpd.kode_skpd', '=', 'ik.kode_skpd');
+            ->leftJoin('dev.ref_skpd as skpd', 'skpd.kode_skpd', '=', 'ik.kode_skpd')
+            ->leftJoin('dev.identifikasi_kebutuhan_anggaran as ika', 'ika.identifikasi_kebutuhan_id', '=', 'ik.id')
+            ->leftJoin('dev.sipd_penetapan_apbd as spa', 'spa.id', '=', 'ika.id_sipd_penetapan');
 
-        if ($user?->kode_skpd) {
-            $terbaru->where('ik.kode_skpd', $user->kode_skpd);
+        if ($skpdScope !== null) {
+            $terbaru->whereIn('ik.kode_skpd', $skpdScope);
+        }
+        if ($tahun) {
+            $terbaru->where('ik.tahun', $tahun);
         }
         if ($ppkCodes !== null) {
             $terbaru->whereIn('ik.kode_sub_kegiatan', $ppkCodes);
@@ -112,6 +160,7 @@ class DashboardController extends Controller
                 'u.nama as nama_user',
                 'skpd.nama_skpd'
             )
+            ->distinct()
             ->orderByDesc('ik.updated_at')
             ->limit(5)
             ->get();
@@ -140,6 +189,7 @@ class DashboardController extends Controller
     public function keterisianPpk(Request $request): JsonResponse
     {
         $user = $request->user();
+        $skpdScope = $this->resolveUserSkpdScope($user);
         $tahun = (int) $request->query('tahun', 0);
         if ($tahun <= 0) {
             $tahun = (int) DB::table('dev.sipd_penetapan_apbd')->max('tahun');
@@ -147,7 +197,7 @@ class DashboardController extends Controller
 
         // 1) Sub kegiatan ter-mapping + total pagu APBD per PPK (tidak digabung dengan paket
         //    agar tidak ada inflasi cross-join).
-        $paguRows = DB::table('dev.users as u')
+        $paguQuery = DB::table('dev.users as u')
             ->leftJoin('dev.user_sub_kegiatan as usk', 'usk.user_id', '=', 'u.id')
             ->leftJoin('dev.sipd_penetapan_apbd as spa', function ($j) use ($tahun) {
                 $j->on('spa.kode_sub_kegiatan', '=', 'usk.kode_sub_kegiatan')
@@ -155,29 +205,41 @@ class DashboardController extends Controller
             })
             ->whereRaw('LOWER(u.role) = ?', ['ppk'])
             ->when($user && strtoupper((string) $user->role) === 'PPK', fn ($q) => $q->where('u.id', $user->id))
-            ->select(
-                'u.id as user_id',
-                'u.username',
-                'u.nama',
-                DB::raw('COUNT(DISTINCT usk.kode_sub_kegiatan) as total_sub_kegiatan'),
-                DB::raw('COALESCE(SUM(spa.pagu), 0) as total_pagu_apbd')
-            )
+            ->when($skpdScope !== null, fn ($q) => $q->whereIn('u.kode_skpd', $skpdScope));
+
+        $paguRows = $paguQuery->select(
+            'u.id as user_id',
+            'u.username',
+            'u.nama',
+            DB::raw('COUNT(DISTINCT usk.kode_sub_kegiatan) as total_sub_kegiatan'),
+            DB::raw('COALESCE(SUM(spa.pagu), 0) as total_pagu_apbd')
+        )
             ->groupBy('u.id', 'u.username', 'u.nama')
             ->orderBy('u.nama')
             ->get()
             ->keyBy('user_id');
 
         // 2) Paket dibuat per PPK + pagu paket.
-        $paketRows = DB::table('dev.users as u')
+        $paketQuery = DB::table('dev.users as u')
             ->leftJoin('dev.identifikasi_kebutuhan as ik', 'ik.user_id', '=', 'u.id')
             ->leftJoin('dev.identifikasi_kebutuhan_anggaran as ika', 'ika.identifikasi_kebutuhan_id', '=', 'ik.id')
+            ->leftJoin('dev.sipd_penetapan_apbd as spa_pkt', 'spa_pkt.id', '=', 'ika.id_sipd_penetapan')
             ->whereRaw('LOWER(u.role) = ?', ['ppk'])
             ->when($user && strtoupper((string) $user->role) === 'PPK', fn ($q) => $q->where('u.id', $user->id))
-            ->select(
-                'u.id as user_id',
-                DB::raw('COUNT(DISTINCT ik.id) as jumlah_paket'),
-                DB::raw('COALESCE(SUM(ika.pagu), 0) as total_pagu_paket')
-            )
+            ->when($skpdScope !== null, fn ($q) => $q->whereIn('u.kode_skpd', $skpdScope));
+
+        if ($tahun > 0) {
+            $paketQuery->where(function ($q) use ($tahun) {
+                $q->where('ik.tahun', $tahun)
+                    ->orWhereNull('ik.id');
+            });
+        }
+
+        $paketRows = $paketQuery->select(
+            'u.id as user_id',
+            DB::raw('COUNT(DISTINCT ik.id) as jumlah_paket'),
+            DB::raw('COALESCE(SUM(ika.pagu), 0) as total_pagu_paket')
+        )
             ->groupBy('u.id')
             ->get()
             ->keyBy('user_id');

@@ -10,9 +10,7 @@ class LaporanKebutuhanExport implements Export, WithMultipleSheets
     /**
      * @param  array<string, mixed>  $data  hasil dari LaporanController::kebutuhan()
      */
-    public function __construct(private array $data)
-    {
-    }
+    public function __construct(private array $data) {}
 
     /**
      * @return list<SheetFromArray>

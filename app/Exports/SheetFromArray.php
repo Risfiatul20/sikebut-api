@@ -16,8 +16,7 @@ class SheetFromArray implements FromArray, WithHeadings, WithTitle
         private string $title,
         private array $rows,
         private array $headings,
-    ) {
-    }
+    ) {}
 
     public function title(): string
     {

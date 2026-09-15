@@ -18,6 +18,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class IdentifikasiKebutuhanController extends Controller
@@ -299,8 +300,11 @@ class IdentifikasiKebutuhanController extends Controller
      * Status values (sistem of record).
      */
     private const STATUS_DRAFT = 'Draft';
+
     private const STATUS_DIAJUKAN = 'Diajukan';
+
     private const STATUS_DISETUJUI = 'Disetujui';
+
     private const STATUS_PERLU_PERBAIKAN = 'Perlu Perbaikan';
 
     /**
@@ -340,8 +344,7 @@ class IdentifikasiKebutuhanController extends Controller
 
         $statusSebelum = $kebutuhan->status_review;
         $kebutuhan->update(['status_review' => self::STATUS_DIAJUKAN]);
-        $this->catatRiwayat($kebutuhan, $statusSebelum, self::STATUS_DIAJUKAN, null, $request->user()->id);
-        $this->notifyReviewers($kebutuhan, 'diajukan');
+        $this->catatRiwayat($kebutuhan, $statusSebelum, self::STATUS_DIAJUKAN, null, $request->user()->id);            $this->notifyReviewers($kebutuhan, 'diajukan');
         $kebutuhan->load(self::RELATIONS);
 
         return response()->json([
@@ -389,8 +392,7 @@ class IdentifikasiKebutuhanController extends Controller
             self::STATUS_DISETUJUI,
             $validated['catatan_reviewer'] ?? null,
             $request->user()->id
-        );
-        $this->notifyPembuat($kebutuhan, 'disetujui', $validated['catatan_reviewer'] ?? null);
+        );            $this->notifyPembuat($kebutuhan, 'disetujui', $validated['catatan_reviewer'] ?? null);
 
         $kebutuhan->load(self::RELATIONS);
 
@@ -436,8 +438,7 @@ class IdentifikasiKebutuhanController extends Controller
             self::STATUS_PERLU_PERBAIKAN,
             $validated['catatan_reviewer'],
             $request->user()->id
-        );
-        $this->notifyPembuat($kebutuhan, 'dikembalikan', $validated['catatan_reviewer'] ?? null);
+        );            $this->notifyPembuat($kebutuhan, 'dikembalikan', $validated['catatan_reviewer'] ?? null);
 
         $kebutuhan->load(self::RELATIONS);
 
@@ -622,7 +623,7 @@ class IdentifikasiKebutuhanController extends Controller
             ]);
         } catch (\Throwable $e) {
             // Jangan sampai notifikasi WA memblokir alur utama.
-            \Illuminate\Support\Facades\Log::warning('[WA] Gagal kirim notifikasi: '.$e->getMessage());
+            Log::warning('[WA] Gagal kirim notifikasi: '.$e->getMessage());
         }
     }
 
@@ -670,7 +671,6 @@ class IdentifikasiKebutuhanController extends Controller
      *
      * @param  list<array{id_sipd_penetapan?: int|string, pagu?: float|int|string}>  $anggaran
      * @param  int|null  $excludeIdentifikasiId  id paket sendiri saat update (jangan hitung ganda)
-     * @return void
      *
      * @throws ValidationException
      */

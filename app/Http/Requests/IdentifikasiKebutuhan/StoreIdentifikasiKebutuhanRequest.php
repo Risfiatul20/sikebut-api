@@ -98,6 +98,7 @@ class StoreIdentifikasiKebutuhanRequest extends FormRequest
             'kode_program' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_program', 'kode_program')],
             'kode_kegiatan' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_kegiatan', 'kode_kegiatan')],
             'kode_sub_kegiatan' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_sub_kegiatan', 'kode_sub_kegiatan')],
+            'tahun' => ['required', 'integer', 'digits:4'],
             'status_review' => ['nullable', 'string', 'max:50'],
             'waktu_pemanfaatan_awal' => ['nullable', 'date'],
             'waktu_pemanfaatan_akhir' => ['nullable', 'date', 'after_or_equal:waktu_pemanfaatan_awal'],
@@ -114,6 +115,7 @@ class StoreIdentifikasiKebutuhanRequest extends FormRequest
             'anggaran.*.id_sipd_penetapan' => ['required', 'integer', Rule::exists('pgsql.dev.sipd_penetapan_apbd', 'id')],
             'anggaran.*.kode_standar_harga' => ['nullable', 'string', 'max:50', Rule::exists('pgsql.dev.ref_standar_harga', 'kode_standar_harga')],
             'anggaran.*.pagu' => ['required', 'numeric', 'min:0'],
-            'anggaran.*.perubahan_standar' => ['nullable', 'array'],        ];
+            'anggaran.*.perubahan_standar' => ['nullable', 'array'],
+        ];
     }
 }

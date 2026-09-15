@@ -86,9 +86,9 @@ Route::prefix('v1')->group(function () {
         Route::get('laporan/rekap/export', [LaporanController::class, 'rekapExport']);
         Route::get('laporan/kebutuhan', [LaporanController::class, 'kebutuhan']);
         Route::get('laporan/kebutuhan/export', [LaporanController::class, 'kebutuhanExport']);
-        Route::get('laporan/penyedia', [LaporanController::class, 'paketPerCara'])->defaults('cara', 'Penyedia');
+        Route::get('laporan/penyedia', [LaporanController::class, 'penyedia']);
         Route::get('laporan/penyedia/export', [LaporanController::class, 'paketPerCaraExport'])->defaults('cara', 'Penyedia');
-        Route::get('laporan/swakelola', [LaporanController::class, 'paketPerCara'])->defaults('cara', 'Swakelola');
+        Route::get('laporan/swakelola', [LaporanController::class, 'swakelola']);
         Route::get('laporan/swakelola/export', [LaporanController::class, 'paketPerCaraExport'])->defaults('cara', 'Swakelola');
         Route::get('laporan/ba-pembahasan-penyedia', [LaporanController::class, 'baPembahasan'])->defaults('cara', 'Penyedia');
         Route::get('laporan/ba-pembahasan-penyedia/export', [LaporanController::class, 'baPembahasanExport'])->defaults('cara', 'Penyedia');
@@ -106,4 +106,5 @@ Route::prefix('v1')->group(function () {
             Route::get('status/{id}', [ImportController::class, 'checkStatus']);
         });
     });
+
 });
